@@ -3,29 +3,24 @@
 {% block title %}Dashboard - Poker{% endblock %}
 
 {% block content %}
-  <h2>Hello {{nickname}}!</h2>
+
+<h2>Hello {{nickname}}!</h2>
+
+{% if games %}
     <ul>
-      <li>Join Game</li>
-      <li>New Game</li>
+    {% for game in games %}
+        <li>
+            Table Code: {{ game.code }} - Buy-in: {{ game.buy_in }} - 
+            Max Players: {{ game.max_players }} - Status: {{ game.status }}
+            <form method="post" action="{% url 'join_game' game.code %}">
+                {% csrf_token %}
+                <button type="submit">Join</button>
+            </form>
+        </li>
+    {% endfor %}
     </ul>
+{% else %}
+    <p>No available tables at the moment. Please check back later.</p>
+{% endif %}
+
 {% endblock %}
-
-
-
-<!-- <!DOCTYPE html>
-<html>
-  <head>
-    <title>Dashboard</title>
-  </head>
-  <body>
-    <h2>Dashboard</h2>
-    <ul>
-      <li><a href="/profile">Profile</a></li>
-      <li><a href="/test">Test Web Sockets</a></li>
-    </ul>
-    <form method="post" action="{% url 'logout' %}">
-      {% csrf_token %}
-      <button type="submit">Logout</button>
-    </form>
-  </body>
-</html> -->

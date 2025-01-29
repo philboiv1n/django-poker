@@ -13,4 +13,9 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("test/", websocket_test, name="websocket_test"),
+
+    path("join/<str:code>/", views.join_game, name="join_game"),  # Join a table
+    path("lobby/<str:code>/", views.lobby, name="lobby"),  # Game lobby
+    
+    
 ]
