@@ -1,0 +1,79 @@
+# services:
+#   app:
+#     build: .
+#     container_name: poker-django
+#     command: daphne -b 0.0.0.0 -p 80 poker_project.asgi:application
+#     ports:
+#       - 80:80
+#     volumes:
+#       - .:/code
+#     depends_on:
+#       - redis
+
+#   redis:
+#     image: redis:latest
+#     container_name: poker-redis
+#     ports:
+#       - 6379:6379
+#     volumes:
+#       - redis_data:/data
+
+# volumes:
+#   redis_data:
+
+services:
+  app:
+    build: .
+    container_name: poker-django
+
+    # For production :
+    # command: daphne -b 0.0.0.0 -p 80 poker_project.asgi:application
+
+    # For dev :
+    command: >
+      watchmedo auto-restart 
+      --directory=/code/poker 
+      --patterns="*.py;*.html" 
+      --recursive --
+      daphne -b 0.0.0.0 -p 80 poker_project.asgi:application
+
+    ports:
+      - 80:80
+    volumes:
+      - .:/code
+      - static_data:/code/poker/staticfiles
+    environment:
+      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
+      - DJANGO_DEBUG=0
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+      - REDIS_HOST=redis
+      - REDIS_PORT=${REDIS_PORT}
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:80/health/"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s
+    depends_on:
+      # redis:
+      #   condition: service_healthy
+      - redis
+
+  redis:
+    image: redis:latest
+    container_name: poker-redis
+    ports:
+      - 6379:6379
+    volumes:
+      - redis_data:/data
+    # healthcheck:
+    #   test: ["CMD", "redis-cli", "ping"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s
+    command: redis-server --appendonly yes # Enable persistence
+
+volumes:
+  redis_data: # For Redis persistence
+  static_data: # For Django static files

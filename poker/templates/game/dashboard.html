@@ -1,0 +1,31 @@
+{% extends "game/base.html" %}
+
+{% block title %}Dashboard - Poker{% endblock %}
+
+{% block content %}
+  <h2>Hello {{nickname}}!</h2>
+    <ul>
+      <li>Join Game</li>
+      <li>New Game</li>
+    </ul>
+{% endblock %}
+
+
+
+<!-- <!DOCTYPE html>
+<html>
+  <head>
+    <title>Dashboard</title>
+  </head>
+  <body>
+    <h2>Dashboard</h2>
+    <ul>
+      <li><a href="/profile">Profile</a></li>
+      <li><a href="/test">Test Web Sockets</a></li>
+    </ul>
+    <form method="post" action="{% url 'logout' %}">
+      {% csrf_token %}
+      <button type="submit">Logout</button>
+    </form>
+  </body>
+</html> -->

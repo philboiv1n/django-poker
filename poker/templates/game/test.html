@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Poker WebSocket Test</title>
+  </head>
+  <body>
+    <h1>WebSocket Test</h1>
+    <input id="messageInput" type="text" placeholder="Type a message" />
+    <button onclick="sendMessage()">Send</button>
+    <ul id="messages"></ul>
+
+    <script>
+      const roomCode = "test-room"; // Test room code
+      const socket = new WebSocket(
+        `ws://${window.location.host}/ws/game/${roomCode}/`
+      );
+
+      socket.onmessage = function (event) {
+        const data = JSON.parse(event.data);
+        const message = data.message;
+
+        const messages = document.getElementById("messages");
+        const newMessage = document.createElement("li");
+        newMessage.textContent = message;
+        messages.appendChild(newMessage);
+      };
+
+      function sendMessage() {
+        const input = document.getElementById("messageInput");
+        socket.send(
+          JSON.stringify({
+            message: input.value,
+          })
+        );
+        input.value = "";
+      }
+    </script>
+  </body>
+</html>

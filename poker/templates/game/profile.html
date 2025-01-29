@@ -1,0 +1,36 @@
+{% extends "game/base.html" %}
+
+{% block title %}Profile - Poker{% endblock %}
+
+{% block content %}
+  <h2>Profile</h2>
+  Chips: {{ user.profile.chips }}<br>
+  Total Chips Received: {{ user.profile.total_chips_received }}<br>
+  Total Chips Won: {{ user.profile.total_chips_won }}<br>
+  Total Chips Lost: {{ user.profile.total_chips_lost }}<br>
+  Games Played: {{ user.profile.games_played }}<br>
+  Games Won: {{ user.profile.games_won }}<br>
+  Games Lost: {{ user.profile.games_lost }}<br>
+  Hands Played: {{ user.profile.hands_played }}<br>
+  Hands Won: {{ user.profile.hands_won }}<br>
+  Highest Win: {{ user.profile.highest_win }}<br>
+  Longest Winning Streak: {{ user.profile.longest_winning_streak }}<br>
+  Longest Losing Streak: {{ user.profile.longest_losing_streak }}<br>
+  Average Bet: {{ user.profile.average_bet }}<br>
+  Ranking: {{ user.profile.ranking }}<br>
+  Royal Flushes: {{ user.profile.royal_flushes }}<br>
+  Straight Flushes: {{ user.profile.straight_flushes }}<br>
+  Four of a Kinds: {{ user.profile.four_of_a_kinds }}<br>
+  Full Houses: {{ user.profile.full_houses }}<br>
+    
+    <form method="post">
+      {% csrf_token %} {{ form.as_p }}
+      <button type="submit">Save</button>
+    </form>
+
+  <h2>Logout?</h2>
+    <form method="post" action="{% url 'logout' %}" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit">Logout</button>
+  </form>
+{% endblock %}
