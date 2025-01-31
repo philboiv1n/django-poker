@@ -23,6 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
 DEBUG = os.environ.get("DJANGO_DEBUG")
 REDIS_PORT = os.environ.get("REDIS_PORT")
+SITE_URL = "localhost"
 
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "/"

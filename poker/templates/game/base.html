@@ -1,39 +1,51 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %} Poker {% endblock %}</title>
     <style>
-        body {font-family: Arial, Helvetica, sans-serif;}
-        main {padding: 10px 0 20px 0;}
-        .gray_pale {color:#999;}
-        .red {color:#ff0000}
+      body {
+        font-family: Arial, Helvetica, sans-serif;
+        background-color: #eee;
+      }
+      main {
+        padding: 10px 0 20px 0;
+      }
+      .gray_pale {
+        color: #999;
+      }
+      .red {
+        color: #ff0000;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
     <!-- Header Menu -->
     <header>
-        <h1>♣︎ <span class="red">♦︎</span> Poker <span class="red">♥︎</span> ♠︎</h1>
-        <p>
-            {% if user.is_authenticated %}
-            <a href="/">Home</a>
-            | <a href="{% url 'profile' %}">Profile</a>
-            | Chips : {{user.profile.chips}}
-            {% endif %}
-        </p>
-        <hr>
+      <h1>
+        ♣︎ <span class="red">♦︎</span> ♠︎ <span class="red">♥︎</span>
+      </h1>
+      <p>
+        {% if user.is_authenticated %}
+        <a href="/">Dashboard</a>
+        | <a href="{% url 'profile' %}">Profile</a> | <a href="{% url 'stats' %}">Stats</a> | <a href="{% url 'logout_validation' %}">Logout</a> | <a href="/admin">Admin</a> | <a href="/test">Test</a>
+        <br>
+        <b>Your chips : {{user.profile.chips}}</b> {% endif %}
+      </p>
+      <hr>
     </header>
 
     <!-- Content Block -->
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+    <main>{% block content %}{% endblock %}</main>
 
     <!-- Footer -->
     <footer>
-        <hr> 
-        <span class="gray_pale">v.0.0.2</span>
+      <hr>
+      <p class="gray_pale">A basic Texas Hold'em Poker prototype using Django.
+        <br>
+        v.0.0.3
+      </p>
     </footer>
-</body>
+  </body>
 </html>

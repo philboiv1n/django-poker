@@ -1,8 +1,21 @@
+"""
+admin.py
+========
+
+Manages how the Django admin panel handles the custom models for the poker app:
+- Integrates a ProfileInline with the User model.
+- Displays and configures Profile, Game, and Player models.
+- Provides actions to remove or manage players from games.
+"""
+
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Profile, Game
+from django.utils.timezone import now
 
+from .models import Profile, Game, Player
+
+# List of fields related to user statistics that should be read-only in the admin interface
 READONLY_FIELDS = (
     "total_chips_received",
     "total_chips_won",
@@ -20,42 +33,98 @@ READONLY_FIELDS = (
     "royal_flushes",
     "straight_flushes",
     "four_of_a_kinds",
-    "full_houses"
-    )
+    "full_houses",
+)
 
-# Defining ProfileInline (To Show Profile Inside User Admin)
+
 class ProfileInline(admin.StackedInline):
+    """
+    An inline admin descriptor for Profile objects.
+    This allows the Profile to appear (and be edited) within
+    the Django User admin page.
+    """
+
     model = Profile
     can_delete = False
-    verbose_name_plural = 'Profile'
+    verbose_name_plural = "Profile"
     readonly_fields = READONLY_FIELDS
 
 
-# Customizing UserAdmin
 class UserAdmin(BaseUserAdmin):
+    """
+    Custom admin configuration for the Django User model.
+    Attaches the ProfileInline so that admins can see and edit user Profiles
+    directly on the User admin page.
+    """
+
     inlines = (ProfileInline,)
+
     def get_readonly_fields(self, request, obj=None):
-        return self.readonly_fields if obj else ()  # Ensure only Profile fields are read-only
+        """
+        Determine which fields are read-only.
+        If obj is None (meaning a new user is being created),
+        we don't set read-only fields.
+        """
+        return self.readonly_fields if obj else ()
 
 
-# PROFILE ADMIN
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
+    """
+    Custom admin configuration for Profiles.
+    Prevents editing of read-only stat fields, but allows editing basic profile info.
+    """
+
     readonly_fields = READONLY_FIELDS
     list_display = ("user", "nickname", "chips", "games_played", "games_won")
 
 
-
-# GAME ADMIN
 @admin.register(Game)
 class GameAdmin(admin.ModelAdmin):
-    list_display = ("code", "buy_in", "small_blind", "big_blind", "blind_timer", "max_players", "status", "created_at")
-    readonly_fields = ("code", "created_at") 
+    """
+    Admin configuration for the Game model.
+    Displays key game properties in list view and allows filtering/search.
+    """
+
+    list_display = (
+        "name",
+        "game_type",
+        "betting_type",
+        "max_players",
+        "status",
+        "created_at",
+    )
+    list_filter = ("game_type", "betting_type", "status")
+    search_fields = ("name",)
+    ordering = ("-created_at",)
 
 
-# admin.site.register(User, UserAdmin)
-# admin.site.register(Profile, ProfileAdmin)
-# admin.site.register(Game, GameAdmin)
+@admin.register(Player)
+class PlayerAdmin(admin.ModelAdmin):
+    """
+    Admin configuration for the Player model.
+    Allows quick viewing of which user is in which game, their chip count,
+    and readiness status.
+    Provides custom actions for removing players from games.
+    """
+
+    list_display = ("user", "game", "chips", "is_ready", "last_active")
+    list_filter = ("game", "is_ready")
+    search_fields = ("user__username", "game__name")
+    actions = ["remove_from_game", "remove_inactive_players"]
+
+    def remove_from_game(self, request, queryset):
+        """
+        Custom admin action:
+        Removes the selected players from their respective games.
+        """
+        queryset.delete()
+        self.message_user(
+            request, "Selected players have been removed from their games."
+        )
+
+    remove_from_game.short_description = "Remove selected players from games"
+
 
 # Unregister default User model and register the custom one
 admin.site.unregister(User)

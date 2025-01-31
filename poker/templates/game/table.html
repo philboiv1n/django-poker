@@ -1,0 +1,31 @@
+{% extends "game/base.html" %} 
+    {% block title %}{{ game.name }} - Poker{% endblock %}
+    {% block content %}
+
+
+    <h2>Table: {{ game.name }} ({{ game.get_game_type_display }} - {{ game.get_betting_type_display }})</h2>
+    <p>Buy-in: {{ game.buy_in }}</p>
+    <p>Blinds: {{ game.small_blind }}/{{ game.big_blind }}</p>
+    <p>Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}</p>
+
+    <h3>Players ({{ players.count }}/{{ game.max_players }})</h3>
+    <ul>
+        {% for player in players %}
+            <li>{{ player.get_nickname }} (Chips: {{ player.chips }}) {% if player.is_ready %}[Ready]{% endif %}</li>
+        {% endfor %}
+    </ul>
+
+    {% if not is_player %}
+        <form action="{% url 'join_table' game.id %}" method="post">
+            {% csrf_token %}
+            <button type="submit">Join Table</button>
+        </form>
+    {% else %}
+        <p>Waiting for more players...</p>
+        <form action="{% url 'leave_table' game.id %}" method="post">
+            {% csrf_token %}
+            <button type="submit">Leave Table</button>
+        </form>
+    {% endif %}
+
+{% endblock %}

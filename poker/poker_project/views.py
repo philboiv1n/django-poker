@@ -5,7 +5,3 @@ from django.contrib.auth.models import User
 
 def home(request):
     return render(request, "home.html")
-
-def show_info(request):
-    all_users = User.objects.values()
-    return HttpResponse(all_users)

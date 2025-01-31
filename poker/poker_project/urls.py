@@ -27,5 +27,6 @@ urlpatterns = [
     # path("test/", websocket_test, name="websocket_test"),
     path("", include("game.urls")),
     # debuging
-    path("info/", views.show_info, name="show_info"),
+    # path("info/", views.show_info, name="show_info"),
+    # path("accounts/", include("django.contrib.auth.urls")),  # Include Django auth views
 ]

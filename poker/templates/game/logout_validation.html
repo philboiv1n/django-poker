@@ -1,0 +1,12 @@
+{% extends "game/base.html" %}
+
+{% block title %}Logout - Poker{% endblock %}
+
+{% block content %}
+
+  <h2>Logout?</h2>
+    <form method="post" action="{% url 'logout' %}" style="display:inline;">
+      {% csrf_token %}
+      <button type="submit">Yes please logout</button>
+  </form>
+{% endblock %}

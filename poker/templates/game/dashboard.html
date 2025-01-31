@@ -1,26 +1,27 @@
-{% extends "game/base.html" %}
-
+{% extends "game/base.html" %} 
 {% block title %}Dashboard - Poker{% endblock %}
-
 {% block content %}
 
 <h2>Hello {{nickname}}!</h2>
 
-{% if games %}
-    <ul>
-    {% for game in games %}
-        <li>
-            Table Code: {{ game.code }} - Buy-in: {{ game.buy_in }} - 
-            Max Players: {{ game.max_players }} - Status: {{ game.status }}
-            <form method="post" action="{% url 'join_game' game.code %}">
-                {% csrf_token %}
-                <button type="submit">Join</button>
-            </form>
-        </li>
-    {% endfor %}
-    </ul>
-{% else %}
-    <p>No available tables at the moment. Please check back later.</p>
-{% endif %}
+<!-- {% if games %} -->
+<ul>
+  {% for game in games %}
+  <li>
+    <strong><a href="{% url 'table' game.id %}">{{ game.name }}</a></strong> - 
+    {{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) - 
+    Players: {{ game.players.count }}/{{ game.max_players }} - Buy-in: {{ game.buy_in }}
 
+    <!-- <form action="{% url 'join_table' game.id %}" method="post">
+        {% csrf_token %}
+        <button type="submit">Join Table</button>
+    </form> -->
+  </li>
+  {% empty %}
+        <p>No available tables at the moment.</p>
+  {% endfor %}
+</ul>
+<!-- {% else %}
+<p>No available tables at the moment. Please check back later.</p> -->
+<!-- {% endif %}  -->
 {% endblock %}

@@ -1,0 +1,33 @@
+{% extends "game/base.html" %}
+
+{% block title %}Statistics - Poker{% endblock %}
+
+{% block content %}
+  <h2>Statistics for {{ profile.nickname }}</h2>
+  Chips: {{ profile.chips }}<br>
+  Total Chips Received: {{ profile.total_chips_received }}<br>
+  Total Chips Won: {{ profile.total_chips_won }}<br>
+  Total Chips Lost: {{ profile.total_chips_lost }}<br>
+  Games Played: {{ profile.games_played }}<br>
+  Games Won: {{ profile.games_won }}<br>
+  Games Lost: {{ profile.games_lost }}<br>
+  Hands Played: {{ profile.hands_played }}<br>
+  Hands Won: {{ profile.hands_won }}<br>
+  Highest Win: {{ profile.highest_win }}<br>
+  Longest Winning Streak: {{ profile.longest_winning_streak }}<br>
+  Longest Losing Streak: {{ profile.longest_losing_streak }}<br>
+  Average Bet: {{ profile.average_bet }}<br>
+  Ranking: {{ profile.ranking }}<br>
+  Royal Flushes: {{ profile.royal_flushes }}<br>
+  Straight Flushes: {{ profile.straight_flushes }}<br>
+  Four of a Kinds: {{ profile.four_of_a_kinds }}<br>
+  Full Houses: {{ profile.full_houses }}<br>
+  
+  
+  <p>Win Rate: {% if profile.games_played > 0 %} 
+      {{ profile.games_won|floatformat:2 }} / {{ profile.games_played }} 
+      ({{ profile.games_won|floatformat:2|divisibleby:profile.games_played|default:"0%" }}) 
+      {% else %} 0% {% endif %}
+  </p>
+  
+{% endblock %}
