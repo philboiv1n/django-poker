@@ -17,16 +17,8 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
-from . import views
-
-# from game.views import websocket_test
-from django.contrib.auth import views as auth_views
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    # path("test/", websocket_test, name="websocket_test"),
     path("", include("game.urls")),
-    # debuging
-    # path("info/", views.show_info, name="show_info"),
-    # path("accounts/", include("django.contrib.auth.urls")),  # Include Django auth views
 ]

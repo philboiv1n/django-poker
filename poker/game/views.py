@@ -7,10 +7,12 @@ Defines the core view functions for the Django poker application:
 - Utilizes decorators like @login_required to ensure only authenticated users access certain views.
 - Includes real-time-related and table join/leave logic.
 """
-
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
-from django.http import Http404
+from django.contrib import messages
+
 from .forms import ProfileForm
 from .models import Game, Player
 
@@ -60,15 +62,39 @@ def profile(request):
     - On POST: Saves form changes (nickname, avatar color, etc.).
     - On GET: Renders the form with current profile info.
     """
-    if request.method == "POST":
-        form = ProfileForm(request.POST, instance=request.user.profile)
-        if form.is_valid():
-            form.save()
-            return redirect("profile")
-    else:
-        form = ProfileForm(instance=request.user.profile)
+   
+    profile_form = ProfileForm(instance=request.user.profile)
+    password_form = PasswordChangeForm(request.user)
 
-    return render(request, "game/profile.html", {"form": form})
+    if request.method == "POST":
+        if "profile_submit" in request.POST:
+            profile_form = ProfileForm(request.POST, instance=request.user.profile)
+            if profile_form.is_valid():
+                profile_form.save()
+                messages.success(request, "Your profile has been updated successfully!")
+                return redirect("profile")
+
+        elif "password_submit" in request.POST:
+            password_form = PasswordChangeForm(request.user, request.POST)
+            if password_form.is_valid():
+                user = password_form.save()
+                update_session_auth_hash(request, user)  # Prevents logout after password change
+                messages.success(request, "Your password has been changed successfully!")
+                return redirect("profile")
+            else:
+                messages.error(request, "Please correct the errors below.")
+
+    return render(
+        request,
+        "game/profile.html",
+        {
+            "profile_form": profile_form,
+            "password_form": password_form,
+        },
+    )
+
+
+
 
 
 @login_required

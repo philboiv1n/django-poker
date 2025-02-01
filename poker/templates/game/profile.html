@@ -1,13 +1,35 @@
 {% extends "game/base.html" %}
 
-{% block title %}Profile - Poker{% endblock %}
+{% block title %}Profile -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 
 {% block content %}
-  <h2>Profile</h2>
 
-    <form method="post">
-      {% csrf_token %} {{ form.as_p }}
-      <button type="submit">Save</button>
-    </form>
+{% if messages %}
+  <ul class="messages">
+    {% for message in messages %}
+      <li class="{{ message.tags }}">{{ message }}</li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+<h2>Profile</h2>
+
+Username : {{ user.username}}
+<!-- Profile Update Form -->
+<form method="post">
+    {% csrf_token %}
+    {{ profile_form.as_p }}
+    <button type="submit" name="profile_submit">Save Changes</button>
+</form>
+
+<br>
+<h2>Change Password</h2>
+
+<!-- Password Change Form -->
+<form method="post">
+    {% csrf_token %}
+    {{ password_form.as_p }}
+    <button type="submit" name="password_submit">Change Password</button>
+</form>
 
 {% endblock %}

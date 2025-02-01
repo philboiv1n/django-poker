@@ -11,7 +11,6 @@ Manages how the Django admin panel handles the custom models for the poker app:
 from django.contrib import admin
 from django.contrib.auth.models import User
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.utils.timezone import now
 
 from .models import Profile, Game, Player
 
