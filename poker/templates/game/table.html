@@ -11,7 +11,7 @@
     <h3>Players ({{ players.count }}/{{ game.max_players }})</h3>
     <ul>
         {% for player in players %}
-            <li>{{ player.get_nickname }} (Chips: {{ player.chips }}) {% if player.is_ready %}[Ready]{% endif %}</li>
+            <li>{{ player.user.username }} (Chips: {{ player.chips }}) {% if player.is_ready %}[Ready]{% endif %}</li>
         {% endfor %}
     </ul>
 

@@ -28,9 +28,6 @@ class Profile(models.Model):
     # When the User is deleted, the Profile is also removed.
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
-    # A nickname displayed instead of the username in the poker application.
-    nickname = models.CharField(max_length=50, blank=True)
-
     # Hex color code (e.g., "#FF5733") for the player's avatar or display.
     avatar_color = models.CharField(max_length=7, default="#000000")
 
@@ -172,17 +169,6 @@ class Player(models.Model):
 
     # Tracks the last time the player performed an action (e.g., to detect inactivity).
     last_active = models.DateTimeField(default=now)
-
-    def get_nickname(self):
-        """
-        Returns the player's nickname if available; otherwise,
-        falls back to the Django username.
-        """
-        return (
-            self.user.profile.nickname
-            if hasattr(self.user, "profile") and self.user.profile.nickname
-            else self.user.username
-        )
 
     def __str__(self):
         """

@@ -66,6 +66,20 @@ class UserAdmin(BaseUserAdmin):
         """
         return self.readonly_fields if obj else ()
 
+    def save_model(self, request, obj, form, change):
+        """
+        Ensures that a Profile is created when a new User is added via the Admin Panel.
+        """
+        is_new_user = (
+            not obj.pk
+        )  # Check if the user is being created for the first time
+
+        super().save_model(request, obj, form, change)  # Save the user first
+
+        if is_new_user:
+            # Create a Profile if it does not already exist
+            Profile.objects.get_or_create(user=obj)
+
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
@@ -75,7 +89,7 @@ class ProfileAdmin(admin.ModelAdmin):
     """
 
     readonly_fields = READONLY_FIELDS
-    list_display = ("user", "nickname", "chips", "games_played", "games_won")
+    list_display = ("user", "chips", "games_played", "games_won")
 
 
 @admin.register(Game)

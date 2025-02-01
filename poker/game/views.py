@@ -7,6 +7,7 @@ Defines the core view functions for the Django poker application:
 - Utilizes decorators like @login_required to ensure only authenticated users access certain views.
 - Includes real-time-related and table join/leave logic.
 """
+
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
@@ -48,10 +49,7 @@ def dashboard(request):
     return render(
         request,
         "game/dashboard.html",
-        {
-            "games": available_games,
-            "nickname": profile.nickname,
-        },
+        {"games": available_games},
     )
 
 
@@ -62,7 +60,7 @@ def profile(request):
     - On POST: Saves form changes (nickname, avatar color, etc.).
     - On GET: Renders the form with current profile info.
     """
-   
+
     profile_form = ProfileForm(instance=request.user.profile)
     password_form = PasswordChangeForm(request.user)
 
@@ -78,8 +76,12 @@ def profile(request):
             password_form = PasswordChangeForm(request.user, request.POST)
             if password_form.is_valid():
                 user = password_form.save()
-                update_session_auth_hash(request, user)  # Prevents logout after password change
-                messages.success(request, "Your password has been changed successfully!")
+                update_session_auth_hash(
+                    request, user
+                )  # Prevents logout after password change
+                messages.success(
+                    request, "Your password has been changed successfully!"
+                )
                 return redirect("profile")
             else:
                 messages.error(request, "Please correct the errors below.")
@@ -92,9 +94,6 @@ def profile(request):
             "password_form": password_form,
         },
     )
-
-
-
 
 
 @login_required

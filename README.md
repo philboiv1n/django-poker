@@ -10,7 +10,7 @@ Inactive player can be removed manually with this command:
 python manage.py remove_inactive_players
 ```
 
-You need to create a .env file with the following key and values
+You need to create a .env file with the following :
 
 ```
 DJANGO_SECRET_KEY=your-secret-key-here

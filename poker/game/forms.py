@@ -33,4 +33,4 @@ class ProfileForm(forms.ModelForm):
         """
 
         model = Profile
-        fields = ["nickname", "avatar_color"]  # The fields editable by the user.
+        fields = ["avatar_color"]  # The fields editable by the user.
