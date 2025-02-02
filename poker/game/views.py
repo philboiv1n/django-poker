@@ -44,8 +44,7 @@ def dashboard(request):
       - List of available 'waiting' games (those not yet started).
       - The user's nickname (drawn from Profile).
     """
-    profile = request.user.profile
-    available_games = Game.objects.filter(status="waiting")
+    available_games = Game.objects.all
     return render(
         request,
         "game/dashboard.html",
@@ -120,38 +119,62 @@ def join_table(request, game_id):
     if request.method == "POST":
         # Ensure the game isn't full
         if game.players.count() >= game.max_players:
-            return redirect("dashboard")  # Redirect if the game is full
+            messages.error(request, "This table is full.")
+            return redirect("table", game_id=game.id)  
 
-        # If user is not already in the game, create a Player entry with default chips
-        Player.objects.get_or_create(
+        # Ensure the player isn't already in the game
+        player, created = Player.objects.get_or_create(
             user=request.user, game=game, defaults={"chips": game.buy_in}
         )
+
+        if created:
+            game.start_game_if_ready()  # Start game if at least 2 players joined
         return redirect("table", game_id=game.id)
 
-    # Redirect users who try to access this view via GET
-    return redirect("dashboard")
 
 
 @login_required
 def leave_table(request, game_id):
     """
-    Removes the current user from a specified game if accessed via POST.
-    Optional: If the game becomes empty afterward, mark it as 'waiting'.
-    Redirects back to the game table or the dashboard, depending on the flow.
+    Removes the player from the game.
+    - If the player was the current turn, pass the turn to the next player.
+    - If 1 or 0 players remain, stop the game.
     """
+
     game = get_object_or_404(Game, id=game_id)
+    player = get_object_or_404(Player, user=request.user, game=game)
 
     if request.method == "POST":
-        # Remove the user from the game
-        Player.objects.filter(user=request.user, game=game).delete()
+        # Get the player's position before leaving
+        leaving_position = player.position
 
-        # If no players remain, you can mark the game as waiting or inactive
-        if game.players.count() == 0:
+        # Remove the player from the game
+        player.delete()
+
+        # Check remaining players
+        remaining_players = list(game.players.order_by("position"))
+
+        if len(remaining_players) == 0:
+            # If no players remain, stop the game
             game.status = "waiting"
-            game.save()
+            game.current_turn = None
+            messages.info(request, "The game has been stopped due to no players remaining.")
+        
+        elif len(remaining_players) == 1:
+            # If only one player remains, stop the game
+            game.status = "waiting"
+            game.current_turn = None
+            messages.info(request, "The game has been stopped because only one player is left.")
+        
+        else:
+            # If the leaving player had the turn, pass it to the next player
+            if game.current_turn == leaving_position:
+                game.current_turn = game.get_next_turn_after(leaving_position)
 
-    # Redirect back to the table by default
+        game.save()
+
     return redirect("table", game_id=game.id)
+
 
 
 @login_required
@@ -175,3 +198,32 @@ def table(request, game_id):
             "is_player": is_player,
         },
     )
+
+
+@login_required
+def player_action(request, game_id):
+    """
+    Allows a player to perform a simple test action.
+    Example: A player can "Check" or "Fold".
+    """
+
+    game = get_object_or_404(Game, id=game_id)
+    player = get_object_or_404(Player, user=request.user, game=game)
+
+    if not player.is_turn():
+        messages.error(request, "It's not your turn!")
+        return redirect("table", game_id=game.id)
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "check":
+            messages.success(request, f"{player.user.username} checked!")
+        elif action == "fold":
+            messages.error(request, f"{player.user.username} folded!")
+
+        # Move turn to the next player
+        game.current_turn = game.get_next_turn_after(player.position)
+        game.save()
+
+    return redirect("table", game_id=game.id)

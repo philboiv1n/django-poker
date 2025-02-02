@@ -2,26 +2,20 @@
 {% block title %}Dashboard - ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
 
-<h2>Hello {{ user.username }}!</h2>
+<h2>Dashboard</h2>
 
-<!-- {% if games %} -->
+Hello {{ user.username }}. Please choose a poker table to start : 
+
 <ul>
   {% for game in games %}
   <li>
     <strong><a href="{% url 'table' game.id %}">{{ game.name }}</a></strong> - 
     {{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) - 
     Players: {{ game.players.count }}/{{ game.max_players }} - Buy-in: {{ game.buy_in }}
-
-    <!-- <form action="{% url 'join_table' game.id %}" method="post">
-        {% csrf_token %}
-        <button type="submit">Join Table</button>
-    </form> -->
   </li>
   {% empty %}
-        <p>No available tables at the moment.</p>
+    <li>Sorry, no available tables at the moment.</li>
   {% endfor %}
 </ul>
-<!-- {% else %}
-<p>No available tables at the moment. Please check back later.</p> -->
-<!-- {% endif %}  -->
+
 {% endblock %}

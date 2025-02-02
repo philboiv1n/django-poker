@@ -30,5 +30,6 @@ urlpatterns = [
     path("leave/<int:game_id>/", views.leave_table, name="leave_table"),
     path("password_change/", auth_views.PasswordChangeView.as_view(), name="password_change"),
     path("password_change_done/", auth_views.PasswordChangeDoneView.as_view(), name="password_change_done"),
+    path("table/<int:game_id>/action/", views.player_action, name="player_action"),
     
 ]

@@ -16,6 +16,7 @@ from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.timezone import now
+import random
 
 
 class Profile(models.Model):
@@ -138,8 +139,54 @@ class Game(models.Model):
     # - "finished": game has ended
     status = models.CharField(max_length=20, default="waiting")
 
+    # Tracks dealer position (where dealing starts)
+    dealer_position = models.PositiveIntegerField(default=0)
+
+    # Tracks which player's turn it is (position in game)
+    current_turn = models.PositiveIntegerField(null=True, blank=True)
+
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def start_game_if_ready(self):
+        """
+        Starts the game if at least 2 players have joined.
+        Randomly selects a dealer and assigns the first turn to the next player.
+        """
+        if self.players.count() >= 2 and self.status == "waiting":
+            self.status = "active"
+            
+            # Choose random dealer
+            players = list(self.players.order_by("position"))
+            self.dealer_position = random.choice(players).position
+            self.current_turn = self.get_next_turn_after(self.dealer_position)
+            self.save()
+
+   
+    def get_next_position(self):
+        """
+        Returns the next available seat position for a new player.
+        """
+        existing_positions = list(self.players.values_list("position", flat=True))
+        for pos in range(self.max_players):  # Find the first empty position
+            if pos not in existing_positions:
+                return pos
+        return None  # No available positions
+    
+    def get_next_turn_after(self, position):
+        """
+        Finds the next player after a given position.
+        Loops around if needed.
+        """
+        players = list(self.players.order_by("position"))  # Ensure order
+
+        if not players:
+            return None  # No players left
+
+        for i, player in enumerate(players):
+            if player.position > position:
+                return player.position
+        return players[0].position if players else None  # Loop back to first player
 
     def __str__(self):
         """
@@ -170,9 +217,24 @@ class Player(models.Model):
     # Tracks the last time the player performed an action (e.g., to detect inactivity).
     last_active = models.DateTimeField(default=now)
 
+    # Assigns a seat in the game
+    position = models.PositiveIntegerField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        """
+        Automatically assigns the next available position when a player joins a game.
+        """
+        if self.position is None:  # Only assign position if not already set
+            self.position = self.game.get_next_position()
+        super().save(*args, **kwargs)
+
+    def is_turn(self):
+        """Returns True if it's this player's turn to act."""
+        return self.game.current_turn == self.position
+
     def __str__(self):
         """
         Returns a simple string with the player's username
-        and the name of the game they are in.
+        and the name of the game they are in with their position.
         """
-        return f"{self.user.username} in {self.game.name}"
+        return f"{self.user.username} in {self.game.name} (Position {self.position})"
