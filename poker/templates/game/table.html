@@ -21,6 +21,13 @@
         {% endfor %}
     </ul>
 
+    {% if is_player %}
+        <form action="{% url 'leave_table' game.id %}" method="post">
+            {% csrf_token %}
+            <button type="submit">Leave Table</button>
+        </form>
+     {% endif %}
+
     <p>
         {% for player in players %}
           {% if player.position == game.dealer_position %}
@@ -50,16 +57,16 @@
     <!-- Show actions only if the current player is in the game AND it's their turn -->
     {% if is_player %}
     <hr>
-    {% for player in players %}
-        {% if player.user == request.user and player.position == game.current_turn %}
-            <h3>Perform Action:</h3>
-            <form method="post" action="{% url 'player_action' game.id %}">
-                {% csrf_token %}
-                <button type="submit" name="action" value="check">Check</button>
-                <button type="submit" name="action" value="fold">Fold</button>
-            </form>
-        {% endif %}
-    {% endfor %}
+        {% for player in players %}
+            {% if player.user == request.user and player.position == game.current_turn %}
+                <h3>Perform Action:</h3>
+                <form method="post" action="{% url 'player_action' game.id %}">
+                    {% csrf_token %}
+                    <button type="submit" name="action" value="check">Check</button>
+                    <button type="submit" name="action" value="fold">Fold</button>
+                </form>
+            {% endif %}
+        {% endfor %}
     {% endif %}
 
     <!-- Show message if it's NOT the player's turn -->
@@ -71,11 +78,8 @@
     {% endfor %}
     {% endif %}
 
-    <br><br><br>
-    <form action="{% url 'leave_table' game.id %}" method="post">
-        {% csrf_token %}
-        <button type="submit">Leave Table</button>
-    </form>
-    {% endif %}
+
+    
+
 
 {% endblock %}

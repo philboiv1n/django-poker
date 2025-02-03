@@ -4,3 +4,4 @@ channels-redis==4.2.1
 daphne==4.1.2
 whitenoise==6.8.2
 watchdog[watchmedo]==6.0.0
+environs==14.1.0

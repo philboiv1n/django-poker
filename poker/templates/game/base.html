@@ -63,13 +63,13 @@
       </h1>
       <p>
         {% if user.is_authenticated %}
+        Hello {{user.username}}. You have {{user.profile.chips}} chips.<br>
         <a href="/">Dashboard</a>
         | <a href="{% url 'profile' %}">Profile</a> | <a href="{% url 'stats' %}">Stats</a> | <a href="{% url 'logout_validation' %}">Logout</a> | <a href="/test">Test</a>
-        {% if request.user.is_staff %}
-          | <a href="/admin">Admin</a>
+          {% if request.user.is_staff %}
+            | <a href="/admin">Admin</a>
+          {% endif %}
         {% endif %}
-        <br>
-        <b>{{user.username}} / Chips : {{user.profile.chips}}</b> {% endif %}
       </p>
       <hr>
     </header>
@@ -92,7 +92,7 @@
       <hr>
       <p class="gray_pale">A basic Texas Hold'em Poker prototype using Django.
         <br>
-        v.0.0.5
+        v.0.0.6
       </p>
     </footer>
   </body>

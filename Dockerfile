@@ -30,7 +30,3 @@ RUN mkdir -p /code/poker/staticfiles
 
 # Run Django's collectstatic command to gather all static files
 RUN python /code/poker/manage.py collectstatic --noinput
-
-# Add healthcheck
-# HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-#     CMD curl -f http://localhost:80/health/ || exit 1

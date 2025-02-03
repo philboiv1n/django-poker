@@ -10,29 +10,31 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
-from pathlib import Path
 import os
+from pathlib import Path
+from environs import Env
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
-
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
-DEBUG = os.environ.get("DJANGO_DEBUG")
-REDIS_PORT = os.environ.get("REDIS_PORT")
-SITE_URL = "localhost"
-
 LOGIN_URL = "/login/"
-LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/login/"
-ALLOWED_HOSTS = []
+LOGIN_REDIRECT_URL = "/"
+
+
+# Initialize `environs`
+env = Env()
+env.read_env()  # Reads the .env file
+
+# Load environment variables
+SECRET_KEY = env.str("SECRET_KEY")
+DEBUG = env.bool("DEBUG", default=False)
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
+REDIS_HOST = env.str("REDIS_HOST")
+REDIS_PORT = env.str("REDIS_PORT")
 
 
 # Application definition
-
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -109,10 +111,11 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = "en-us"
-TIME_ZONE = "America/New_York"
-USE_I18N = True
-USE_TZ = True
+LANGUAGE_CODE = "en-ca"
+TIME_ZONE = "America/Toronto"
+USE_I18N = True  # Internationalization
+USE_L10N = True  # Localization
+USE_TZ = True  # Timezone support
 
 
 # Static files (CSS, JavaScript, Images)
@@ -126,13 +129,17 @@ STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# ASGI config
+# ASGI (Asynchronous Server Gateway Interface) configuration.
+# ASGI is required for handling WebSockets, real-time communication, and async tasks.
+# This defines the entry point for ASGI applications in Django.
 ASGI_APPLICATION = "poker_project.asgi.application"
+
+# Django Channels configuration for handling WebSockets and real-time features.
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("redis", REDIS_PORT)],
+            "hosts": [(REDIS_HOST, REDIS_PORT)],
         },
     },
 }

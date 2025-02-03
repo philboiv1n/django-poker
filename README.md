@@ -2,7 +2,6 @@
 
 A basic Python / Django poker game project using Docker.
 
-
 ## Features
 
 - Simple Texas Hold'em Poker in a browser
@@ -13,16 +12,14 @@ A basic Python / Django poker game project using Docker.
 - Player Stats
 - Player Profile
 
-
 ## Environment Variables
 
 To run this project, you will need to add the following environment variables to your .env file
 
 ```
-DJANGO_SECRET_KEY=
-DJANGO_DEBUG=0
-DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+SECRET_KEY=your_secret_key_here
+DEBUG=False
+ALLOWED_HOSTS=127.0.0.1,localhost
 REDIS_HOST=redis
 REDIS_PORT=6379
 ```
-
