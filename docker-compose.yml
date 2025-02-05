@@ -19,10 +19,10 @@ services:
     volumes:
       - .:/code
       - static_data:/code/poker/staticfiles
-
+    # environment:
+    #   - DJANGO_SETTINGS_MODULE=poker_project.settings
     env_file:
       - .env
-
     depends_on:
       - redis
 

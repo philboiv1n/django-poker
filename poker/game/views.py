@@ -8,24 +8,21 @@ Defines the core view functions for the Django poker application:
 - Includes real-time-related and table join/leave logic.
 """
 
+import redis
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
+from django.conf import settings
 
 from .forms import ProfileForm
 from .models import Game, Player
 
-
-@login_required
-def websocket_test(request):
-    """
-    Renders a simple template to test WebSocket functionality.
-    Typically used to confirm that real-time channels are working properly.
-    """
-    return render(request, "game/test.html")
-
+# Connect to Redis
+redis_client = redis.Redis(host="redis", port=6379, db=0, decode_responses=True)
 
 @login_required
 def logout_validation(request):
@@ -187,6 +184,8 @@ def table(request, game_id):
     """
     game = get_object_or_404(Game, id=game_id)
     players = game.players.all()
+    current_turn_player = players.filter(position=game.current_turn).first()
+    current_turn_username = current_turn_player.user.username if current_turn_player else ""
     is_player = players.filter(user=request.user).exists()
 
     return render(
@@ -196,34 +195,73 @@ def table(request, game_id):
             "game": game,
             "players": players,
             "is_player": is_player,
+            "current_turn_username": current_turn_username,
         },
     )
 
 
+def update_turn_and_notify(game):
+    """
+    Updates the game turn and sends a WebSocket message to all players.
+    """
+
+    # Get the current player object
+    current_player = Player.objects.filter(game=game, position=game.current_turn).first()
+
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f"game_{game.id}",
+        {
+            "type": "send_turn_update",
+            "current_turn": game.current_turn,
+            "current_username": current_player.user.username if current_player else "Unknown",
+        },
+    )
+
 @login_required
 def player_action(request, game_id):
     """
-    Allows a player to perform a simple test action.
-    Example: A player can "Check" or "Fold".
+    Allows a player to perform an action and updates the turn in real-time.
     """
 
     game = get_object_or_404(Game, id=game_id)
     player = get_object_or_404(Player, user=request.user, game=game)
 
     if not player.is_turn():
-        messages.error(request, "It's not your turn!")
         return redirect("table", game_id=game.id)
+
+    action_message = ""  # Message to broadcast
 
     if request.method == "POST":
         action = request.POST.get("action")
 
         if action == "check":
-            messages.success(request, f"{player.user.username} checked!")
+            action_message = f"✅ {player.user.username} checked."
         elif action == "fold":
-            messages.error(request, f"{player.user.username} folded!")
+            action_message = f"🚫 {player.user.username} folded."
 
         # Move turn to the next player
         game.current_turn = game.get_next_turn_after(player.position)
         game.save()
+
+         # Store message in Redis (List)
+        redis_key = f"game_{game_id}_messages"
+        redis_client.rpush(redis_key, action_message)
+
+        # Limit storage to last 10 messages
+        redis_client.ltrim(redis_key, -10, -1)
+        
+        # Broadcast the action message to all players via WebSockets
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"game_{game.id}",
+            {
+                "type": "send_action_message",
+                "message": action_message,
+            },
+        )
+
+        # Send WebSocket update to all players
+        update_turn_and_notify(game)
 
     return redirect("table", game_id=game.id)

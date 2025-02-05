@@ -8,12 +8,17 @@ https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/
 """
 
 import os
+
+# Set the settings module
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "poker_project.settings")
+
+# Import and initialize the ASGI application to load Django apps
 from django.core.asgi import get_asgi_application
+http_app = get_asgi_application()
+
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
 from game.routing import websocket_urlpatterns
-
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'poker_project.settings')
 
 application = ProtocolTypeRouter(
     {

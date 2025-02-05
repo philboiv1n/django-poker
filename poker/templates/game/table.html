@@ -1,85 +1,171 @@
 {% extends "game/base.html" %} 
-    {% block title %}{{ game.name }} -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
-    {% block meta %}
-    <!-- Temporary refresh for testing purpose -->
-    <meta http-equiv="refresh" content="5">
-    {% endblock %}
-    {% block content %}
+{% block title %}{{ game.name }} -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
+{% block content %}
 
-    <h2>{{ game.name }} ({{ game.get_game_type_display }} - {{ game.get_betting_type_display }})</h2>
-    <p>Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}/{{ game.big_blind }}</p>
-    <p>Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}</p>
-    <p>Status: <strong>{{ game.status }}</strong></p>
-    <hr>
+<h2>{{ game.name }}</h2>
+<p>
+  {{ game.get_game_type_display }} - {{ game.get_betting_type_display }}<br>
+  Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}/{{ game.big_blind }}<br>
+  Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}
+</p>
 
-    <h3>Players ({{ players.count }}/{{ game.max_players }})</h3>
-    <ul>
-        {% for player in players %}
-            <li>{{ player.user.username }} : Sitting {{ player.position }} | Chips : {{ player.chips }}
-                {% if player.position == game.current_turn %} > Your Turn! {% endif %}
-            </li>
-        {% endfor %}
-    </ul>
+<p>Status: <span id="game-status">{{ game.status }}</span></p>
 
-    {% if is_player %}
-        <form action="{% url 'leave_table' game.id %}" method="post">
+<!-- Display a list of player on this table -->
+<h3>Players ({{ players.count }}/{{ game.max_players }})</h3>
+<ul id="players-list">
+  {% for player in players %}
+    <li data-position="{{ player.position }}">
+      {{ player.user.username }} (Position: {{ player.position }})
+    </li>
+  {% endfor %}
+</ul>
+
+{% if is_player %}
+  <form action="{% url 'leave_table' game.id %}" method="post">
+      {% csrf_token %}
+      <button type="submit">Leave Table</button>
+  </form>
+{% endif %}
+
+<hr>
+
+<p>Dealer: <span id="dealer">
+  {% for player in players %}
+    {% if player.position == game.dealer_position %}
+      {{ player.user.username }}
+    {% endif %}
+  {% endfor %}
+</span></p>
+
+
+<!-- Display the current player's turn -->
+<p id="current-turn">Current Turn: 
+  {% for player in players %}
+    {% if player.position == game.current_turn %}
+      {{ player.user.username }}
+    {% endif %}
+  {% endfor %}
+</p>
+
+<!-- Display the Join Table -->
+{% if not is_player and players|length < game.max_players %}
+<form action="{% url 'join_table' game.id %}" method="post">
+    {% csrf_token %}
+    <button type="submit">Join Table</button>
+</form>
+{% endif %}
+
+
+<!-- Player Actions -->
+{% if is_player %}
+    <div id="player-actions">
+        <h3>Perform Action:</h3>
+        <form method="post" action="{% url 'player_action' game.id %}">
             {% csrf_token %}
-            <button type="submit">Leave Table</button>
+            <button type="submit" name="action" value="check" class="action-button" disabled>Check</button>
+            <button type="submit" name="action" value="fold" class="action-button" disabled>Fold</button>
         </form>
-     {% endif %}
+    </div>
+{% endif %}
 
-    <p>
-        {% for player in players %}
-          {% if player.position == game.dealer_position %}
-            Dealer : {{ player.user.username }}
-          {% endif %}
-        {% endfor %}
-    </p>
+<h3>Messages:</h3>
+<ul id="action-messages"></ul>
 
-    <!-- <p>Current Turn: 
-        {% for player in players %}
-          {% if player.position == game.current_turn %}
-            <strong>{{ player.user.username }}</strong>
-          {% endif %}
-        {% endfor %}
-      </p> -->
+<script>
+  const gameId = "{{ game.id }}";  // Get the game ID
+  const username = "{{ request.user.username }}";  // Get the current user's name
+  let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
+  let socket = null;
+  let reconnectInterval = 3000;  // 3 seconds before trying to reconnect
 
 
-    {% if not is_player and players|length < game.max_players %}
-        <form action="{% url 'join_table' game.id %}" method="post">
-            {% csrf_token %}
-            <button type="submit">Join Table</button>
-        </form>
-    {% endif %}
-
-   
-
-    <!-- Show actions only if the current player is in the game AND it's their turn -->
-    {% if is_player %}
-    <hr>
-        {% for player in players %}
-            {% if player.user == request.user and player.position == game.current_turn %}
-                <h3>Perform Action:</h3>
-                <form method="post" action="{% url 'player_action' game.id %}">
-                    {% csrf_token %}
-                    <button type="submit" name="action" value="check">Check</button>
-                    <button type="submit" name="action" value="fold">Fold</button>
-                </form>
-            {% endif %}
-        {% endfor %}
-    {% endif %}
-
-    <!-- Show message if it's NOT the player's turn -->
-    {% if is_player %}
-    {% for player in players %}
-        {% if player.user == request.user and player.position != game.current_turn %}
-            <p>Waiting for other players...</p>
-        {% endif %}
-    {% endfor %}
-    {% endif %}
 
 
+  function addMessage(message) {
+    const messagesList = document.getElementById("action-messages");
     
+    // Create new <li> element
+    const li = document.createElement("li");
+    li.textContent = message;
 
+    // Add the new <li> to the <ul>
+    messagesList.appendChild(li);
+
+    // Automatically remove the message after 5 seconds
+    // setTimeout(() => {
+    //     li.remove();
+    // }, 10000);
+  }
+
+
+
+
+  function connectWebSocket() {
+
+    socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
+
+    socket.onopen = function () {
+      console.log("WebSocket Connected");
+      document.getElementById("action-messages").innerHTML = "";
+    };
+
+
+    socket.onmessage = function (event) {
+      const data = JSON.parse(event.data);
+
+       // If it's an action message (fold, check, etc.), display it
+       if ("message" in data) {
+            addMessage(data.message);
+      }
+
+      if ("current_username" in data) {
+        // Update the current turn display
+        document.getElementById("current-turn").innerText = "Current Turn: " + data.current_username;
+
+        // Update the variable for next load
+        currentTurnUsername = data.current_username;
+
+        // Enable/Disable buttons based on whose turn it is
+        const actionButtons = document.querySelectorAll(".action-button");
+        if (data.current_username === username) {
+            actionButtons.forEach(button => button.disabled = false);
+            addMessage("It's your turn!");
+        } else {
+            actionButtons.forEach(button => button.disabled = true);
+        }
+      }
+    };
+
+
+    socket.onclose = function (event) {
+      console.warn("WebSocket Disconnected. Reconnecting in 3 seconds...");
+      setTimeout(connectWebSocket, reconnectInterval);  // Auto-reconnect
+    };
+
+    socket.onerror = function (error) {
+    //  console.error("WebSocket Error:", error);
+      socket.close();  // Force reconnect on error
+    };
+
+  }
+
+  
+  window.onload = function() {
+    // Ensure buttons are enabled correctly on page load
+    const actionButtons = document.querySelectorAll(".action-button");
+    if (currentTurnUsername === username) {
+        actionButtons.forEach(button => button.disabled = false);
+
+    } else {
+        actionButtons.forEach(button => button.disabled = true);
+    }
+  };
+
+
+  // Initial WebSocket Connection
+  connectWebSocket();
+
+</script>
 
 {% endblock %}

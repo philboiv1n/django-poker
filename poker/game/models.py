@@ -173,20 +173,30 @@ class Game(models.Model):
                 return pos
         return None  # No available positions
     
-    def get_next_turn_after(self, position):
-        """
-        Finds the next player after a given position.
-        Loops around if needed.
-        """
-        players = list(self.players.order_by("position"))  # Ensure order
+    # def get_next_turn_after(self, position):
+    #     """
+    #     Finds the next player after a given position.
+    #     Loops around if needed.
+    #     """
+    #     players = list(self.players.order_by("position"))  # Ensure order
 
+    #     if not players:
+    #         return None  # No players left
+
+    #     for i, player in enumerate(players):
+    #         if player.position > position:
+    #             return player.position
+    #     return players[0].position if players else None  # Loop back to first player
+
+    def get_next_turn_after(self, position):
+        players = list(self.players.order_by("position"))
         if not players:
             return None  # No players left
-
-        for i, player in enumerate(players):
+        for player in players:
             if player.position > position:
                 return player.position
-        return players[0].position if players else None  # Loop back to first player
+        # Loop back if no higher position found
+        return players[0].position if players else None
 
     def __str__(self):
         """
