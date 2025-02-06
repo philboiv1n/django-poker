@@ -22,7 +22,7 @@ from .forms import ProfileForm
 from .models import Game, Player
 
 # Connect to Redis
-redis_client = redis.Redis(host="redis", port=6379, db=0, decode_responses=True)
+redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
 
 @login_required
 def logout_validation(request):
@@ -116,16 +116,25 @@ def join_table(request, game_id):
     if request.method == "POST":
         # Ensure the game isn't full
         if game.players.count() >= game.max_players:
-            messages.error(request, "This table is full.")
+           # messages.error(request, "This table is full.")
             return redirect("table", game_id=game.id)  
 
-        # Ensure the player isn't already in the game
-        player, created = Player.objects.get_or_create(
+        # Add user as a player if not already in the game
+        created = Player.objects.get_or_create(
             user=request.user, game=game, defaults={"chips": game.buy_in}
         )
 
         if created:
             game.start_game_if_ready()  # Start game if at least 2 players joined
+
+
+        # Trigger WebSocket update
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"game_{game.id}",
+            {"type": "update_players"}
+        )
+
         return redirect("table", game_id=game.id)
 
 
@@ -170,6 +179,13 @@ def leave_table(request, game_id):
 
         game.save()
 
+        # Trigger WebSocket update
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"game_{game.id}",
+            {"type": "update_players"}
+        )
+
     return redirect("table", game_id=game.id)
 
 
@@ -198,70 +214,3 @@ def table(request, game_id):
             "current_turn_username": current_turn_username,
         },
     )
-
-
-def update_turn_and_notify(game):
-    """
-    Updates the game turn and sends a WebSocket message to all players.
-    """
-
-    # Get the current player object
-    current_player = Player.objects.filter(game=game, position=game.current_turn).first()
-
-    channel_layer = get_channel_layer()
-    async_to_sync(channel_layer.group_send)(
-        f"game_{game.id}",
-        {
-            "type": "send_turn_update",
-            "current_turn": game.current_turn,
-            "current_username": current_player.user.username if current_player else "Unknown",
-        },
-    )
-
-@login_required
-def player_action(request, game_id):
-    """
-    Allows a player to perform an action and updates the turn in real-time.
-    """
-
-    game = get_object_or_404(Game, id=game_id)
-    player = get_object_or_404(Player, user=request.user, game=game)
-
-    if not player.is_turn():
-        return redirect("table", game_id=game.id)
-
-    action_message = ""  # Message to broadcast
-
-    if request.method == "POST":
-        action = request.POST.get("action")
-
-        if action == "check":
-            action_message = f"✅ {player.user.username} checked."
-        elif action == "fold":
-            action_message = f"🚫 {player.user.username} folded."
-
-        # Move turn to the next player
-        game.current_turn = game.get_next_turn_after(player.position)
-        game.save()
-
-         # Store message in Redis (List)
-        redis_key = f"game_{game_id}_messages"
-        redis_client.rpush(redis_key, action_message)
-
-        # Limit storage to last 10 messages
-        redis_client.ltrim(redis_key, -10, -1)
-        
-        # Broadcast the action message to all players via WebSockets
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"game_{game.id}",
-            {
-                "type": "send_action_message",
-                "message": action_message,
-            },
-        )
-
-        # Send WebSocket update to all players
-        update_turn_and_notify(game)
-
-    return redirect("table", game_id=game.id)

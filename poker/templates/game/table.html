@@ -12,7 +12,7 @@
 <p>Status: <span id="game-status">{{ game.status }}</span></p>
 
 <!-- Display a list of player on this table -->
-<h3>Players ({{ players.count }}/{{ game.max_players }})</h3>
+<h3>Players (<span id="player-count">{{ players.count }}</span>/{{ game.max_players }})</h3>
 <ul id="players-list">
   {% for player in players %}
     <li data-position="{{ player.position }}">
@@ -20,6 +20,7 @@
     </li>
   {% endfor %}
 </ul>
+
 
 {% if is_player %}
   <form action="{% url 'leave_table' game.id %}" method="post">
@@ -30,23 +31,26 @@
 
 <hr>
 
-<p>Dealer: <span id="dealer">
-  {% for player in players %}
-    {% if player.position == game.dealer_position %}
-      {{ player.user.username }}
-    {% endif %}
-  {% endfor %}
-</span></p>
+{% if game.status == "active" %}
+
+  <p>Dealer: <span id="dealer">
+    {% for player in players %}
+      {% if player.position == game.dealer_position %}
+        {{ player.user.username }}
+      {% endif %}
+    {% endfor %}
+  </span></p>
 
 
-<!-- Display the current player's turn -->
-<p id="current-turn">Current Turn: 
-  {% for player in players %}
-    {% if player.position == game.current_turn %}
-      {{ player.user.username }}
-    {% endif %}
-  {% endfor %}
-</p>
+  <!-- Display the current player's turn -->
+  <p id="current-turn">Current Turn: 
+    {% for player in players %}
+      {% if player.position == game.current_turn %}
+        {{ player.user.username }}
+      {% endif %}
+    {% endfor %}
+  </p>
+{% endif %}
 
 <!-- Display the Join Table -->
 {% if not is_player and players|length < game.max_players %}
@@ -59,20 +63,20 @@
 
 <!-- Player Actions -->
 {% if is_player %}
-    <div id="player-actions">
-        <h3>Perform Action:</h3>
-        <form method="post" action="{% url 'player_action' game.id %}">
-            {% csrf_token %}
-            <button type="submit" name="action" value="check" class="action-button" disabled>Check</button>
-            <button type="submit" name="action" value="fold" class="action-button" disabled>Fold</button>
-        </form>
-    </div>
+    <h3>Action:</h3>
+    <button onclick="sendAction('check')" class="action-button">Check</button>
+    <button onclick="sendAction('fold')" class="action-button">Fold</button>
 {% endif %}
 
 <h3>Messages:</h3>
 <ul id="action-messages"></ul>
 
+
+
+
+
 <script>
+
   const gameId = "{{ game.id }}";  // Get the game ID
   const username = "{{ request.user.username }}";  // Get the current user's name
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
@@ -99,6 +103,30 @@
   }
 
 
+  function sendAction(action) {
+    socket.send(JSON.stringify({ action: action, player: username }));
+  }
+
+
+
+  function updatePlayerList(players) {
+        const playerList = document.getElementById("players-list");
+        const playerCount = document.getElementById("player-count");
+
+        // Clear current list
+        playerList.innerHTML = "";
+
+        // Update player count
+        playerCount.innerText = players.length;
+
+        // Add updated players
+        players.forEach(player => {
+            const li = document.createElement("li");
+            li.setAttribute("data-position", player.position);
+            li.textContent = `${player.username} (Position: ${player.position})`;
+            playerList.appendChild(li);
+        });
+    }
 
 
   function connectWebSocket() {
@@ -115,8 +143,13 @@
       const data = JSON.parse(event.data);
 
        // If it's an action message (fold, check, etc.), display it
-       if ("message" in data) {
-            addMessage(data.message);
+      if ("message" in data) {
+        addMessage(data.message);
+      }
+
+       // Update player list when receiving an update
+      if ("players" in data) {
+        updatePlayerList(data.players);
       }
 
       if ("current_username" in data) {
@@ -130,7 +163,7 @@
         const actionButtons = document.querySelectorAll(".action-button");
         if (data.current_username === username) {
             actionButtons.forEach(button => button.disabled = false);
-            addMessage("It's your turn!");
+           // addMessage("It's your turn!");
         } else {
             actionButtons.forEach(button => button.disabled = true);
         }
