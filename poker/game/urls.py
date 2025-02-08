@@ -24,8 +24,14 @@ urlpatterns = [
     path("logout_validation", views.logout_validation, name="logout_validation"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("table/<int:game_id>/", views.table, name="table"),
-    path("join/<int:game_id>/", views.join_table, name="join_table"),
-    path("leave/<int:game_id>/", views.leave_table, name="leave_table"),
-    path("password_change/", auth_views.PasswordChangeView.as_view(), name="password_change"),
-    path("password_change_done/", auth_views.PasswordChangeDoneView.as_view(), name="password_change_done"), 
+    path(
+        "password_change/",
+        auth_views.PasswordChangeView.as_view(),
+        name="password_change",
+    ),
+    path(
+        "password_change_done/",
+        auth_views.PasswordChangeDoneView.as_view(),
+        name="password_change_done",
+    ),
 ]

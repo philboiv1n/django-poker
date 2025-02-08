@@ -8,21 +8,16 @@ Defines the core view functions for the Django poker application:
 - Includes real-time-related and table join/leave logic.
 """
 
-import redis
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
 from django.conf import settings
 
 from .forms import ProfileForm
-from .models import Game, Player
+from .models import Game
 
-# Connect to Redis
-redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
 
 @login_required
 def logout_validation(request):
@@ -100,93 +95,6 @@ def stats(request):
     """
     profile = request.user.profile
     return render(request, "game/stats.html", {"profile": profile})
-
-
-@login_required
-def join_table(request, game_id):
-    """
-    Joins the user to a specified game if:
-      - The game is not already full.
-      - The user is not already part of the game.
-    Handled via POST to ensure a proper action submission.
-    Redirects to the game lobby upon success.
-    """
-    game = get_object_or_404(Game, id=game_id)
-
-    if request.method == "POST":
-        # Ensure the game isn't full
-        if game.players.count() >= game.max_players:
-           # messages.error(request, "This table is full.")
-            return redirect("table", game_id=game.id)  
-
-        # Add user as a player if not already in the game
-        created = Player.objects.get_or_create(
-            user=request.user, game=game, defaults={"chips": game.buy_in}
-        )
-
-        if created:
-            game.start_game_if_ready()  # Start game if at least 2 players joined
-
-
-        # Trigger WebSocket update
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"game_{game.id}",
-            {"type": "update_players"}
-        )
-
-        return redirect("table", game_id=game.id)
-
-
-
-@login_required
-def leave_table(request, game_id):
-    """
-    Removes the player from the game.
-    - If the player was the current turn, pass the turn to the next player.
-    - If 1 or 0 players remain, stop the game.
-    """
-
-    game = get_object_or_404(Game, id=game_id)
-    player = get_object_or_404(Player, user=request.user, game=game)
-
-    if request.method == "POST":
-        # Get the player's position before leaving
-        leaving_position = player.position
-
-        # Remove the player from the game
-        player.delete()
-
-        # Check remaining players
-        remaining_players = list(game.players.order_by("position"))
-
-        if len(remaining_players) == 0:
-            # If no players remain, stop the game
-            game.status = "waiting"
-            game.current_turn = None
-            messages.info(request, "The game has been stopped due to no players remaining.")
-        
-        elif len(remaining_players) == 1:
-            # If only one player remains, stop the game
-            game.status = "waiting"
-            game.current_turn = None
-            messages.info(request, "The game has been stopped because only one player is left.")
-        
-        else:
-            # If the leaving player had the turn, pass it to the next player
-            if game.current_turn == leaving_position:
-                game.current_turn = game.get_next_turn_after(leaving_position)
-
-        game.save()
-
-        # Trigger WebSocket update
-        channel_layer = get_channel_layer()
-        async_to_sync(channel_layer.group_send)(
-            f"game_{game.id}",
-            {"type": "update_players"}
-        )
-
-    return redirect("table", game_id=game.id)
 
 
 

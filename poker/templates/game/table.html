@@ -21,14 +21,17 @@
   {% endfor %}
 </ul>
 
+<!-- Join Table Button (Initially shown) -->
+<button id="join-button" onclick="sendJoin()" 
+    {% if is_player or players|length >= game.max_players %}style="display:none;"{% endif %}>
+    Join Table
+</button>
 
-{% if is_player %}
-  <form action="{% url 'leave_table' game.id %}" method="post">
-      {% csrf_token %}
-      <button type="submit">Leave Table</button>
-  </form>
-{% endif %}
-
+<!-- Leave Table Button (Initially hidden if not a player) -->
+<button id="leave-button" onclick="sendLeave()" 
+    {% if not is_player %}style="display:none;"{% endif %}>
+    Leave Table
+</button>
 <hr>
 
 {% if game.status == "active" %}
@@ -52,21 +55,17 @@
   </p>
 {% endif %}
 
-<!-- Display the Join Table -->
-{% if not is_player and players|length < game.max_players %}
-<form action="{% url 'join_table' game.id %}" method="post">
-    {% csrf_token %}
-    <button type="submit">Join Table</button>
-</form>
-{% endif %}
+
 
 
 <!-- Player Actions -->
-{% if is_player %}
     <h3>Action:</h3>
     <button onclick="sendAction('check')" class="action-button">Check</button>
     <button onclick="sendAction('fold')" class="action-button">Fold</button>
-{% endif %}
+
+
+
+
 
 <h3>Messages:</h3>
 <ul id="action-messages"></ul>
@@ -77,34 +76,22 @@
 
 <script>
 
-  const gameId = "{{ game.id }}";  // Get the game ID
-  const username = "{{ request.user.username }}";  // Get the current user's name
-  let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
-  let socket = null;
+  let gameId = "{{ game.id }}";  // Get the game ID
+  let username = "{{ request.user.username }}";  // Get the current user's name
   let reconnectInterval = 3000;  // 3 seconds before trying to reconnect
 
-
-
-
-  function addMessage(message) {
-    const messagesList = document.getElementById("action-messages");
-    
-    // Create new <li> element
-    const li = document.createElement("li");
-    li.textContent = message;
-
-    // Add the new <li> to the <ul>
-    messagesList.appendChild(li);
-
-    // Automatically remove the message after 5 seconds
-    // setTimeout(() => {
-    //     li.remove();
-    // }, 10000);
-  }
-
+  let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
+  //let socket = null;
+  
 
   function sendAction(action) {
-    socket.send(JSON.stringify({ action: action, player: username }));
+    // Ensure WebSocket is open before sending data
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: action, player: username }));
+        console.log(`🟢 Sent action: ${action} by ${username}`);
+    } else {
+        console.warn("WebSocket is not open. Cannot send action.");
+    }
   }
 
 
@@ -129,6 +116,11 @@
     }
 
 
+
+
+
+
+
   function connectWebSocket() {
 
     socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
@@ -142,28 +134,72 @@
     socket.onmessage = function (event) {
       const data = JSON.parse(event.data);
 
-       // If it's an action message (fold, check, etc.), display it
-      if ("message" in data) {
-        addMessage(data.message);
+      // Debugging: Log received data
+      console.log("🔵 WebSocket Message Received:", data);
+
+
+      // Handle current turn username (disable/enable buttons)
+      if (data.current_username) {
+          let actionButtons = document.querySelectorAll(".action-button");
+          actionButtons.forEach(button => {
+              if (typeof username !== "undefined" && username === data.current_username) {
+                  button.disabled = false;  // Enable for current turn user
+              } else {
+                  button.disabled = true;   // Disable for others
+              }
+          });
       }
 
-       // Update player list when receiving an update
+
+      // Handle action messages
+      if (data.messages) {
+          
+          let messagesList = document.getElementById("action-messages");
+          messagesList.innerHTML = ""; 
+
+          // Ensure the `ul` element exists before modifying
+          if (!messagesList) {
+              console.error("❌ Error: 'action-messages' element not found!");
+              return;
+          }
+          data.messages.forEach(msg => {
+              let li = document.createElement("li");
+              li.innerText = msg;
+              messagesList.appendChild(li);
+          });
+      }
+
+      let joinButton = document.getElementById("join-button");
+      let leaveButton = document.getElementById("leave-button");
+
       if ("players" in data) {
         updatePlayerList(data.players);
+
+        let isPlayer = data.players.some(player => player.username === username);
+        let playerCount = data.players.length;
+        let maxPlayers = parseInt("{{ game.max_players }}"); // Get max players from template
+
+        // Toggle button visibility based on player status and table capacity
+        if (isPlayer) {
+            if (joinButton) joinButton.style.display = "none";  // Hide Join
+            if (leaveButton) leaveButton.style.display = "block"; // Show Leave
+        } else {
+            if (playerCount >= maxPlayers) {
+                if (joinButton) joinButton.style.display = "none"; // Hide if table is full
+            } else {
+                if (joinButton) joinButton.style.display = "block"; // Show if table has space
+            }
+            if (leaveButton) leaveButton.style.display = "none";  // Hide Leave if not a player
+        }
       }
 
       if ("current_username" in data) {
-        // Update the current turn display
-        document.getElementById("current-turn").innerText = "Current Turn: " + data.current_username;
-
         // Update the variable for next load
         currentTurnUsername = data.current_username;
-
         // Enable/Disable buttons based on whose turn it is
         const actionButtons = document.querySelectorAll(".action-button");
-        if (data.current_username === username) {
+        if (currentTurnUsername === username) {
             actionButtons.forEach(button => button.disabled = false);
-           // addMessage("It's your turn!");
         } else {
             actionButtons.forEach(button => button.disabled = true);
         }
@@ -176,8 +212,7 @@
       setTimeout(connectWebSocket, reconnectInterval);  // Auto-reconnect
     };
 
-    socket.onerror = function (error) {
-    //  console.error("WebSocket Error:", error);
+    socket.onerror = function (error) { 
       socket.close();  // Force reconnect on error
     };
 
@@ -189,12 +224,20 @@
     const actionButtons = document.querySelectorAll(".action-button");
     if (currentTurnUsername === username) {
         actionButtons.forEach(button => button.disabled = false);
-
     } else {
         actionButtons.forEach(button => button.disabled = true);
     }
   };
 
+
+
+  function sendJoin() {
+    socket.send(JSON.stringify({ action: "join", player: username }));
+  }
+
+  function sendLeave() {
+    socket.send(JSON.stringify({ action: "leave", player: username }));
+  }
 
   // Initial WebSocket Connection
   connectWebSocket();

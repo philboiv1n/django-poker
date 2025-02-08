@@ -12,11 +12,19 @@ pieces of data are stored. This allows the application to store and manage
 players, games, and poker statistics seamlessly.
 """
 
+import redis
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.timezone import now
-import random
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+from django.conf import settings
+# import random
+
+
+# Connect to Redis
+redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
 
 
 class Profile(models.Model):
@@ -140,27 +148,16 @@ class Game(models.Model):
     status = models.CharField(max_length=20, default="waiting")
 
     # Tracks dealer position (where dealing starts)
-    dealer_position = models.PositiveIntegerField(default=0)
+    # dealer_position = models.PositiveIntegerField(default=0)
+    dealer_position = models.IntegerField(null=True, blank=True)
 
     # Tracks which player's turn it is (position in game)
-    current_turn = models.PositiveIntegerField(null=True, blank=True)
+    #current_turn = models.PositiveIntegerField(null=True, blank=True)
+    current_turn = models.IntegerField(default=0) 
+
 
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
-
-    def start_game_if_ready(self):
-        """
-        Starts the game if at least 2 players have joined.
-        Randomly selects a dealer and assigns the first turn to the next player.
-        """
-        if self.players.count() >= 2 and self.status == "waiting":
-            self.status = "active"
-            
-            # Choose random dealer
-            players = list(self.players.order_by("position"))
-            self.dealer_position = random.choice(players).position
-            self.current_turn = self.get_next_turn_after(self.dealer_position)
-            self.save()
 
    
     def get_next_position(self):
@@ -173,30 +170,78 @@ class Game(models.Model):
                 return pos
         return None  # No available positions
     
-    # def get_next_turn_after(self, position):
-    #     """
-    #     Finds the next player after a given position.
-    #     Loops around if needed.
-    #     """
-    #     players = list(self.players.order_by("position"))  # Ensure order
-
-    #     if not players:
-    #         return None  # No players left
-
-    #     for i, player in enumerate(players):
-    #         if player.position > position:
-    #             return player.position
-    #     return players[0].position if players else None  # Loop back to first player
 
     def get_next_turn_after(self, position):
+        """
+        Returns the next player's position after the given position.
+        Ensures a valid player is always assigned.
+        """
         players = list(self.players.order_by("position"))
+
         if not players:
             return None  # No players left
-        for player in players:
-            if player.position > position:
-                return player.position
-        # Loop back if no higher position found
-        return players[0].position if players else None
+        
+        for i, player in enumerate(players):
+            if player.position == position:
+                return players[(i + 1) % len(players)].position  # Ensure a valid player is returned
+    
+        return players[0].position  # Default to first player if something goes wrong
+        
+
+    
+    def rotate_dealer(self):
+        """
+        Moves the dealer to the next player after a full betting round.
+        """
+        players = list(self.players.order_by("position"))
+        current_dealer_index = next((i for i, p in enumerate(players) if p.position == self.dealer_position), 0)
+
+        # Move the dealer to the next player
+        new_dealer_index = (current_dealer_index + 1) % len(players)
+        self.dealer_position = players[new_dealer_index].position
+
+        # First turn goes to the player after the dealer
+        self.current_turn = self.get_next_turn_after(self.dealer_position)
+        self.save()
+
+        # Notify players via WebSocket
+        self.broadcast_new_dealer(players[new_dealer_index].user.username)
+
+
+
+    def broadcast_game_start(self, dealer_username):
+        """ Broadcasts the game start message via WebSockets. """
+        message = f"🎲 {dealer_username} is the first dealer! Game has started."
+        self.broadcast_websocket_message(message)
+
+
+
+    def broadcast_new_dealer(self, dealer_username):
+        """ Broadcasts when the dealer rotates. """
+        message = f"🔄 {dealer_username} is the new dealer!"
+        self.broadcast_websocket_message(message)
+
+
+
+    def broadcast_websocket_message(self, message):
+        """ Sends a WebSocket message to all players in the game. """
+
+        # Store message in Redis (list)
+        redis_key = f"game_{self.id}_messages"
+        redis_client.rpush(redis_key, message)
+
+        # Limit storage to last 10 messages
+        redis_client.ltrim(redis_key, -10, -1)
+
+        channel_layer = get_channel_layer()
+
+        async_to_sync(channel_layer.group_send)(
+            f"game_{self.id}",
+            {
+                "type": "send_action_message",
+                "message": message,
+            },
+)
 
     def __str__(self):
         """
