@@ -153,7 +153,8 @@ class Game(models.Model):
 
     # Tracks which player's turn it is (position in game)
     #current_turn = models.PositiveIntegerField(null=True, blank=True)
-    current_turn = models.IntegerField(default=0) 
+    # current_turn = models.IntegerField(default=0) 
+    current_turn = models.IntegerField(null=True, blank=True) 
 
 
     # Timestamp of when the game was created.

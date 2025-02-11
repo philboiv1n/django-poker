@@ -34,7 +34,7 @@
 </button>
 <hr>
 
-{% if game.status == "active" %}
+
 
   <p>Dealer: <span id="dealer">
     {% for player in players %}
@@ -46,24 +46,23 @@
 
 
   <!-- Display the current player's turn -->
-  <p id="current-turn">Current Turn: 
+  Player's turn : <span id="current-turn">
     {% for player in players %}
       {% if player.position == game.current_turn %}
         {{ player.user.username }}
       {% endif %}
     {% endfor %}
-  </p>
-{% endif %}
+  </span>
 
 
 
 
 <!-- Player Actions -->
+<div id="action-buttons-container" style="display: block;">
     <h3>Action:</h3>
-    <button onclick="sendAction('check')" class="action-button">Check</button>
-    <button onclick="sendAction('fold')" class="action-button">Fold</button>
-
-
+    <button id="check-button" onclick="sendAction('check')" class="action-button" disabled>Check</button>
+    <button id="fold-button" onclick="sendAction('fold')" class="action-button" disabled>Fold</button>
+</div>
 
 
 
@@ -79,7 +78,6 @@
   let gameId = "{{ game.id }}";  // Get the game ID
   let username = "{{ request.user.username }}";  // Get the current user's name
   let reconnectInterval = 3000;  // 3 seconds before trying to reconnect
-
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
   //let socket = null;
   
@@ -132,27 +130,68 @@
 
 
     socket.onmessage = function (event) {
-      const data = JSON.parse(event.data);
-
+      const ed = JSON.parse(event.data);
+      
       // Debugging: Log received data
-      console.log("🔵 WebSocket Message Received:", data);
+      console.log("🔵 WebSocket Message Received:", ed);
+
+      if (ed.data) {
+
+        if (ed.data.game_status !== undefined) {
+          document.getElementById("game-status").innerText = ed.data.game_status;
+        }
 
 
-      // Handle current turn username (disable/enable buttons)
-      if (data.current_username) {
+        if (ed.data.dealer_position !== undefined) {
+          document.getElementById("dealer").innerText = 
+          ed.data.players.find(p => p.position === ed.data.dealer_position)?.username || "Unknown";
+        }
+
+
+        if (ed.data.current_turn !== undefined) {
+          document.getElementById("current-turn").innerText =
+            ed.data.players.find(p => p.position === ed.data.current_turn)?.username || "Unknown";
+        }
+
+
+        if (ed.data.players) {
+          updatePlayerList(ed.data.players);
+
+          const isPlayer = ed.data.players.some(player => player.username === username);
+          const playerCount = ed.data.players.length;
+          const maxPlayers = parseInt("{{ game.max_players }}");
+
+          const joinButton = document.getElementById("join-button");
+          const leaveButton = document.getElementById("leave-button");
+
+          // Handle Join Button Visibility
+          if (joinButton) {
+              joinButton.style.display = isPlayer || playerCount >= maxPlayers ? "none" : "block";
+          }
+
+          // Handle Leave Button Visibility
+          if (leaveButton) {
+              leaveButton.style.display = isPlayer ? "block" : "none";
+          }
+        }
+
+        if (ed.data.current_username || ed.data.current_username === "") {
           let actionButtons = document.querySelectorAll(".action-button");
           actionButtons.forEach(button => {
-              if (typeof username !== "undefined" && username === data.current_username) {
+              if (typeof username !== "" && username === ed.data.current_username && ed.data.game_status === "active") {
                   button.disabled = false;  // Enable for current turn user
               } else {
                   button.disabled = true;   // Disable for others
               }
           });
+        }
+
+
       }
-
-
+      
+    
       // Handle action messages
-      if (data.messages) {
+      if (ed.messages) {
           
           let messagesList = document.getElementById("action-messages");
           messagesList.innerHTML = ""; 
@@ -162,48 +201,14 @@
               console.error("❌ Error: 'action-messages' element not found!");
               return;
           }
-          data.messages.forEach(msg => {
+          ed.messages.forEach(msg => {
               let li = document.createElement("li");
               li.innerText = msg;
-              messagesList.appendChild(li);
+              // messagesList.appendChild(li);
+              messagesList.insertBefore(li, messagesList.firstChild);
           });
       }
 
-      let joinButton = document.getElementById("join-button");
-      let leaveButton = document.getElementById("leave-button");
-
-      if ("players" in data) {
-        updatePlayerList(data.players);
-
-        let isPlayer = data.players.some(player => player.username === username);
-        let playerCount = data.players.length;
-        let maxPlayers = parseInt("{{ game.max_players }}"); // Get max players from template
-
-        // Toggle button visibility based on player status and table capacity
-        if (isPlayer) {
-            if (joinButton) joinButton.style.display = "none";  // Hide Join
-            if (leaveButton) leaveButton.style.display = "block"; // Show Leave
-        } else {
-            if (playerCount >= maxPlayers) {
-                if (joinButton) joinButton.style.display = "none"; // Hide if table is full
-            } else {
-                if (joinButton) joinButton.style.display = "block"; // Show if table has space
-            }
-            if (leaveButton) leaveButton.style.display = "none";  // Hide Leave if not a player
-        }
-      }
-
-      if ("current_username" in data) {
-        // Update the variable for next load
-        currentTurnUsername = data.current_username;
-        // Enable/Disable buttons based on whose turn it is
-        const actionButtons = document.querySelectorAll(".action-button");
-        if (currentTurnUsername === username) {
-            actionButtons.forEach(button => button.disabled = false);
-        } else {
-            actionButtons.forEach(button => button.disabled = true);
-        }
-      }
     };
 
 
