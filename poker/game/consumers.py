@@ -3,7 +3,6 @@ import redis
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from asgiref.sync import sync_to_async
-
 from .models import Game, Player, User
 
 # Connect to Redis
@@ -15,24 +14,30 @@ redis_client = redis.Redis(
 class GameConsumer(AsyncWebsocketConsumer):
     """
     WebSocket consumer to handle real-time updates for poker games.
+    Manages player connections, actions, and game state updates.
     """
+
+    # =======================================================================
+    # WEBSOCKET CONNECTION HANDLING
+    # =======================================================================
 
     async def connect(self):
         """
-        Connects the user to the WebSocket room for a specific game.
-        Retrieves past messages and the current username from Redis.
+        Handles WebSocket connection.
+
+        - Joins the WebSocket room.
+        - Sends past messages from Redis.
+        - Sends the current game state to the client.
         """
+
         self.game_id = self.scope["url_route"]["kwargs"]["game_id"]
         self.room_group_name = f"game_{self.game_id}"
 
-        # Join the WebSocket room
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
-        # Get the game status
+        # Retrieve game and broadcast state
         game = await sync_to_async(Game.objects.get)(id=self.game_id)
-
-        # Broadcast updated game state
         await self.broadcast_game_state(game)
 
         # Retrieve & clean past messages from Redis
@@ -44,24 +49,25 @@ class GameConsumer(AsyncWebsocketConsumer):
         clean_messages = []
         for msg in stored_messages:
             try:
-                # Check if the message is already a valid JSON string
-                if msg.startswith("{") and msg.endswith("}"):
-                    json_msg = json.loads(msg)
-                    if isinstance(json_msg, dict) and "message" in json_msg:
-                        clean_messages.append(json_msg["message"])
-                else:
-                    # If it's a plain string (not JSON), store it as-is
-                    clean_messages.append(msg)
-            except (json.JSONDecodeError, AttributeError) as e:
-                print(
-                    f"❌ Skipping invalid JSON message from Redis: {msg}, Error: {e}"
-                )  # Debugging
-                continue  # Skip invalid entries
+                json_msg = json.loads(msg)
+                if isinstance(json_msg, dict) and "message" in json_msg:
+                    clean_messages.append(json_msg["message"])
+            except json.JSONDecodeError:
+                continue  # Skip invalid messages
 
         # Send cleaned messages to the client
         await self.send(text_data=json.dumps({"messages": clean_messages}))
 
-    async def receive(self, text_data):
+    # -----------------------------------------------------------------------
+    async def disconnect(self, close_code):
+        """Disconnects the user from the WebSocket room."""
+        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+
+    # =======================================================================
+    # WEBSOCKET MESSAGE HANDLING
+    # =======================================================================
+
+    async def receive(self, text_data: str):
         """
         Handles messages received from WebSocket clients.
         """
@@ -70,7 +76,6 @@ class GameConsumer(AsyncWebsocketConsumer):
         player_username = data.get("player")
 
         try:
-            # Ensure game exists before using it
             game = await sync_to_async(Game.objects.get)(id=self.game_id)
 
             if action == "join":
@@ -80,68 +85,74 @@ class GameConsumer(AsyncWebsocketConsumer):
                 await self.handle_leave(game, player_username)
 
             elif action in ["check", "fold"]:
-                player = await sync_to_async(Player.objects.get)(
-                    game=game, user__username=player_username
-                )
-
-                if player and await sync_to_async(player.is_turn)():
-
-                    action_message = await sync_to_async(self.process_action)(
-                        game, player, action
-                    )
-
-                    await self.broadcast_messages(action_message)
-                    await self.broadcast_game_state(game)
+                await self.handle_action(game, player_username, action)
 
         except Game.DoesNotExist:
-            print(f"❌ Game {self.game_id} not found. Ignoring action: {action}")
+            print(f" Game {self.game_id} not found. Ignoring action: {action}")
 
-    def process_action(self, game, player, action):
-        """Processes the player action (check or fold)."""
+    # =======================================================================
+    # WEBSOCKET ACTION HANDLING
+    # =======================================================================
+
+    async def handle_action(self, game, player_username: str, action: str):
+        """
+        Handles player actions such as 'check' and 'fold'.
+
+        Args:
+            game (Game): The current game instance.
+            player_username (str): The username of the player performing the action.
+            action (str): The action being performed ('check' or 'fold').
+        """
+        player = await sync_to_async(Player.objects.get)(
+            game=game, user__username=player_username
+        )
+
+        if player and await sync_to_async(player.is_turn)():
+            action_message = await sync_to_async(self.process_action)(
+                game, player, action
+            )
+            await self.broadcast_messages(action_message)
+            await self.broadcast_game_state(game)
+
+    # -----------------------------------------------------------------------
+    def process_action(self, game, player, action: str) -> str:
+        """
+        Processes player action and advances the game.
+
+        Args:
+            game (Game): The game instance.
+            player (Player): The player performing the action.
+            action (str): The action ('check' or 'fold').
+
+        Returns:
+            str: The action message to broadcast.
+        """
 
         username = player.user.username
 
-        if action == "check":
-            action_message = f"✅ {username} checked."
-        elif action == "fold":
-            action_message = f"🚫 {username} folded."
+        action_message = (
+            f"✅ {username} checked." if action == "check" else f"🚫 {username} folded."
+        )
 
-        # Move turn to the next player
         game.current_turn = game.get_next_turn_after(player.position)
         game.save()
 
         return action_message
 
-    async def disconnect(self, close_code):
-        """Disconnects the user from the WebSocket room."""
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
-
-    async def get_game(self):
-        """Retrieves the game object."""
-        return await sync_to_async(Game.objects.get)(id=self.game_id)
-
-    async def get_player(self, game, username):
-        """Retrieves the player object."""
-        return await sync_to_async(Player.objects.get)(
-            game=game, user__username=username
-        )
-
-    async def get_current_player(self, game):
-        """Retrieves the player whose turn it is."""
-        return await sync_to_async(Player.objects.get)(
-            game=game, position=game.current_turn
-        )
-
-    async def handle_join(self, game, player_username):
+    # -----------------------------------------------------------------------
+    async def handle_join(self, game, player_username: str):
         """
-        Handles player joining the table via WebSocket.
+        Handles a player joining the game.
+
+        Args:
+            game (Game): The game instance.
+            player_username (str): The username of the player joining.
         """
         user = await sync_to_async(User.objects.get)(username=player_username)
-
-        # Ensure player is not already in the game
         existing_player = await sync_to_async(
             lambda: game.players.filter(user=user).exists()
         )()
+
         if existing_player:
             return  # Player is already at the table
 
@@ -163,11 +174,11 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         # Fetch the player count asynchronously
         player_count = await sync_to_async(lambda: game.players.count())()
-        game_status = await sync_to_async(lambda: game.status)()
+        # game_status = await sync_to_async(lambda: game.status)()
 
         # Start the game if at least 2 players and not waiting
-        if player_count > 1 and game_status == "waiting":
-            print(f"🚀 Starting game since {player_count} players have joined.")
+        if player_count > 1 and game.status == "waiting":
+            # print(f"🚀 Starting game since {player_count} players have joined.")
             await self.start_game(game)
 
         # Notify all players
@@ -175,45 +186,37 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.broadcast_messages(join_message)
         await self.broadcast_game_state(game)
 
-    async def handle_leave(self, game, player_username):
+    # -----------------------------------------------------------------------
+    async def handle_leave(self, game, player_username: str):
         """
         Handles player leaving the table via WebSocket.
         """
 
         # Get the player
         player = await sync_to_async(
-            Player.objects.filter(game=game, user__username=player_username).first
+            lambda: game.players.filter(user__username=player_username).first()
         )()
-
-        # Check if player exist
         if not player:
-            print(f"❌ Player {player_username} not found in game {game.id}.")
             return
 
         # Remove player from the game
         await sync_to_async(player.delete)()
 
-        # Check how many players are left
-        remaining_players = list(
-            await sync_to_async(lambda: list(game.players.order_by("position")))()
-        )
-
-        # Stop the game if < 2 players
+        remaining_players = await sync_to_async(
+            lambda: list(game.players.order_by("position"))
+        )()
         if len(remaining_players) < 2:
             game.status = "waiting"
             game.dealer_position = None
             game.current_turn = None
         else:
-            # Reassign dealer if the leaving player was the dealer
             if game.dealer_position == player.position:
-                new_dealer = remaining_players[0]  # Get the next lowest position player
-                game.dealer_position = new_dealer.position
-
-            # Update current_turn to the next player if needed
+                game.dealer_position = remaining_players[0].position
             if game.current_turn == player.position:
-                game.current_turn = self.get_next_turn_after(game, game.dealer_position)
+                game.current_turn = await self.get_next_turn_after(
+                    game, game.dealer_position
+                )
 
-        # Save game state
         await sync_to_async(game.save)()
 
         # Notify all players
@@ -221,6 +224,34 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.broadcast_messages(leave_message)
         await self.broadcast_game_state(game)
 
+    # =======================================================================
+    # WEBSOCKET GAME STATE HANDLING
+    # =======================================================================
+
+    async def start_game(self, game):
+        """
+        Starts the game when at least 2 players have joined.
+        Selects a dealer and assigns the first turn.
+        """
+
+        players = await sync_to_async(
+            lambda: list(game.players.order_by("position")), thread_sensitive=True
+        )()
+
+        if len(players) < 2:
+            game.status = "waiting"
+            game.current_turn = None
+            game.dealer_position = None
+            await sync_to_async(game.save)()
+            return
+
+        game.status = "active"
+        game.dealer_position = players[0].position
+        game.current_turn = await self.get_next_turn_after(game, game.dealer_position)
+        await sync_to_async(game.save)()
+        await self.broadcast_game_state(game)
+
+    # -----------------------------------------------------------------------
     async def get_next_turn_after(self, game, position):
         """
         Gets the next player's position after the given position.
@@ -232,46 +263,12 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         for i, player in enumerate(players):
             if player.position == position:
-                return players[(i + 1) % len(players)].position  # Loops back if needed
+                return players[(i + 1) % len(players)].position
 
-        return None  # This should never happen
+        return None
 
-    async def start_game(self, game):
-        """
-        Starts the game when at least 2 players have joined.
-        Selects a dealer and assigns the first turn.
-        """
-        print(f"🚀 Starting game for {game.id}")
-
-        # Fetch players asynchronously
-        players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
-        )()
-
-        if len(players) < 2:
-            print("Not enough players to start the game. Waiting...")
-            game.status = "waiting"
-            game.current_turn = None
-            game.dealer_position = None
-            await sync_to_async(game.save)()
-            return
-
-        # Update game status
-        game.status = "active"
-
-        # Choose the dealer (first player in the sorted list)
-        dealer = players[0]
-        game.dealer_position = dealer.position
-
-        # Determine the next player (first player after dealer)
-        game.current_turn = await self.get_next_turn_after(game, dealer.position)
-
-        # Save the updated game state
-        await sync_to_async(game.save)()
-
-        # Broadcast updated game state
-        await self.broadcast_game_state(game)
-
+    # -----------------------------------------------------------------------
+    # To use later...
     async def end_round(self, game):
         """
         Ends the current round and moves the dealer to the next player.
@@ -293,39 +290,23 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Broadcast updated game state
         await self.broadcast_game_state(game)
 
-    ###################################################################
-    #
-    #  Broadcasting
-    #
-    #
-    ###################################################################
+    # =======================================================================
+    # WEBSOCKET BROADCASTING TO PLAYERS
+    # =======================================================================
 
-    async def broadcast_messages(self, message):
-
-        # Store current turn's username in Redis
-        # redis_client.set(
-        #     f"game_{self.game_id}_current_username", current_username
-        # )
+    async def broadcast_messages(self, message: str):
+        """
+        Stores and broadcasts game messages.
+        """
 
         # Store action messages in Redis (limit last 10 messages)
         redis_key = f"game_{self.game_id}_messages"
-        redis_client.rpush(
-            redis_key,
-            json.dumps(
-                {
-                    "message": message,
-                    #  "current_username": current_username,
-                }
-            ),
-        )
+        redis_client.rpush(redis_key, json.dumps({"message": message}))
         redis_client.ltrim(redis_key, -10, -1)
-
-        # Retrieve all messages from Redis
         stored_messages = redis_client.lrange(redis_key, -10, -1)
         clean_messages = [json.loads(msg).get("message", "") for msg in stored_messages]
 
         # Broadcast message to all players
-        print(f"📢 Broadcasting action to WebSocket clients...")
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -334,15 +315,17 @@ class GameConsumer(AsyncWebsocketConsumer):
             },
         )
 
+    # -----------------------------------------------------------------------
     async def send_action_message(self, event):
         """
-        Sends action messages to the frontend, ensuring `current_turn` is present.
+        Sends action messages to the frontend
         """
         message_data = {
             "messages": event["messages"],
         }
         await self.send(text_data=json.dumps(message_data))
 
+    # -----------------------------------------------------------------------
     async def broadcast_game_state(self, game):
         """Sends updated game state to all connected players"""
 
@@ -351,11 +334,10 @@ class GameConsumer(AsyncWebsocketConsumer):
             lambda: list(game.players.all()), thread_sensitive=True
         )()
 
-        # Retrieve current player
-        current_player = await sync_to_async(
-            lambda: game.players.filter(position=game.current_turn).first(),
-            thread_sensitive=True,
-        )()
+        # Find the current player in the list
+        current_player = next(
+            (p for p in players if p.position == game.current_turn), None
+        )
         current_username = (
             await sync_to_async(
                 lambda: current_player.user.username, thread_sensitive=True
@@ -391,6 +373,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             },
         )
 
+    # -----------------------------------------------------------------------
     async def send_game_state(self, event):
-        """Sends updated dealer and turn info to frontend"""
+        """Sends game state updates to frontend"""
         await self.send(text_data=json.dumps(event))

@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 import os
 from pathlib import Path
 from environs import Env
+from poker_project.version import __version__
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -70,6 +72,7 @@ TEMPLATES = [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "poker_project.settings.version_context",
             ],
         },
     },
@@ -143,3 +146,8 @@ CHANNEL_LAYERS = {
         },
     },
 }
+
+
+# Custom context processor for versioning
+def version_context(request):
+    return {"VERSION": __version__}
