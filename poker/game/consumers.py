@@ -1,5 +1,6 @@
 import json
 import redis
+import random
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from asgiref.sync import sync_to_async
@@ -32,13 +33,22 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         self.game_id = self.scope["url_route"]["kwargs"]["game_id"]
         self.room_group_name = f"game_{self.game_id}"
+        self.user = self.scope["user"]
+        self.user_channel_name = f"user_{self.user.id}"
 
+
+        # Join the public game WebSocket room
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+
+        # Join a **private WebSocket group** for this specific user
+        await self.channel_layer.group_add(self.user_channel_name, self.channel_name)
+        
         await self.accept()
 
         # Retrieve game and broadcast state
         game = await sync_to_async(Game.objects.get)(id=self.game_id)
         await self.broadcast_game_state(game)
+        await self.broadcast_private(game)
 
         # Retrieve & clean past messages from Redis
         redis_messages_key = f"game_{self.game_id}_messages"
@@ -62,6 +72,8 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def disconnect(self, close_code):
         """Disconnects the user from the WebSocket room."""
         await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        await self.channel_layer.group_discard(self.user_channel_name, self.channel_name)
+
 
     # =======================================================================
     # WEBSOCKET MESSAGE HANDLING
@@ -113,6 +125,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             )
             await self.broadcast_messages(action_message)
             await self.broadcast_game_state(game)
+            #await self.broadcast_private(game)
 
     # -----------------------------------------------------------------------
     def process_action(self, game, player, action: str) -> str:
@@ -168,17 +181,15 @@ class GameConsumer(AsyncWebsocketConsumer):
             return  # No available positions
 
         # Create new Player
-        new_player = await sync_to_async(Player.objects.create)(
+        await sync_to_async(Player.objects.create)(
             game=game, user=user, position=min(available_positions)
         )
 
         # Fetch the player count asynchronously
         player_count = await sync_to_async(lambda: game.players.count())()
-        # game_status = await sync_to_async(lambda: game.status)()
 
         # Start the game if at least 2 players and not waiting
         if player_count > 1 and game.status == "waiting":
-            # print(f"🚀 Starting game since {player_count} players have joined.")
             await self.start_game(game)
 
         # Notify all players
@@ -249,7 +260,11 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.dealer_position = players[0].position
         game.current_turn = await self.get_next_turn_after(game, game.dealer_position)
         await sync_to_async(game.save)()
-        await self.broadcast_game_state(game)
+        await self.shuffle_and_deal(game)
+
+        # not sure if i need this one - already sent when a player join the game...
+        # await self.broadcast_game_state(game)
+        await self.broadcast_private(game)
 
     # -----------------------------------------------------------------------
     async def get_next_turn_after(self, game, position):
@@ -276,7 +291,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         players = await sync_to_async(list)(game.players.order_by("position"))
 
         if not players:
-            print("❌ No players left.")
+            print("No players left.")
             return
 
         # Move dealer to the next player
@@ -290,6 +305,70 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Broadcast updated game state
         await self.broadcast_game_state(game)
 
+
+    # ===========================================
+    # CARD & DEALING LOGIC
+    # ===========================================
+
+    def create_deck(self):
+        """Creates a standard deck of 52 cards."""
+        suits = ["♠", "♥", "♦", "♣"]
+        ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+        return [f"{rank}{suit}" for suit in suits for rank in ranks]
+
+
+    async def shuffle_and_deal(self, game):
+        """
+        Shuffles the deck and deals two hole cards to each player.
+        """
+
+        # Create and shuffle the deck
+        deck = self.create_deck()
+        random.shuffle(deck)
+        dealt_cards = {}
+
+        # Fetch players in correct order
+        players = await sync_to_async(
+            lambda: list(game.players.order_by("position")), thread_sensitive=True
+        )()
+        if not players:
+            print("No players in the game. Cannot deal cards.")
+            return
+
+        # Determine starting position (first player after the dealer)
+        dealer_position = game.dealer_position
+        start_index = next((i for i, p in enumerate(players) if p.position == dealer_position), -1)
+        if start_index == -1:
+            print("Dealer not found. Cannot proceed with dealing.")
+            return
+        
+        # Deal cards in two rounds
+        for _ in range(2):  # Two hole cards per player
+            for i in range(len(players)):
+                player = players[(start_index + i + 1) % len(players)]  # Next player after dealer
+                card = deck.pop(0) 
+                
+                # Append card to player's hand
+                username = await sync_to_async(
+                        lambda: player.user.username, thread_sensitive=True
+                    )()
+                if username not in dealt_cards:
+                    dealt_cards[username] = []
+                dealt_cards[username].append(card)
+
+                # Save hole cards to database
+                for player in players:
+                    username = await sync_to_async(
+                        lambda: player.user.username, thread_sensitive=True
+                    )()
+                    if username in dealt_cards:
+                        await sync_to_async(player.set_hole_cards)(dealt_cards[username])
+
+                # print(f"Dealt cards: {dealt_cards}") # Debugging
+
+        # Save the updated game state
+        await sync_to_async(game.save)()
+        
     # =======================================================================
     # WEBSOCKET BROADCASTING TO PLAYERS
     # =======================================================================
@@ -325,6 +404,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         }
         await self.send(text_data=json.dumps(message_data))
 
+
     # -----------------------------------------------------------------------
     async def broadcast_game_state(self, game):
         """Sends updated game state to all connected players"""
@@ -345,8 +425,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             if current_player
             else ""
         )
-
-        # Construct the game state message
+        
+        # Create a personal game state message for each player
         game_state_message = {
             "type": "update_game_state",
             "game_status": game.status,
@@ -355,16 +435,14 @@ class GameConsumer(AsyncWebsocketConsumer):
             "current_username": current_username,
             "players": [
                 {
-                    "username": await sync_to_async(
-                        lambda: player.user.username, thread_sensitive=True
-                    )(),
-                    "position": player.position,
+                    "username": await sync_to_async(lambda: p.user.username, thread_sensitive=True)(),
+                    "position": p.position,
                 }
-                for player in players
+                for p in players
             ],
         }
 
-        # Broadcast to all players
+        # Send this game state **privately** to the respective player
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -373,7 +451,41 @@ class GameConsumer(AsyncWebsocketConsumer):
             },
         )
 
-    # -----------------------------------------------------------------------
     async def send_game_state(self, event):
         """Sends game state updates to frontend"""
-        await self.send(text_data=json.dumps(event))
+        await self.send(text_data=json.dumps(event["data"]))
+
+
+    # -----------------------------------------------------------------------
+    async def broadcast_private(self, game):
+        """Sends updated game state to all connected players"""
+
+        # Fetch all players asynchronously
+        players = await sync_to_async(
+            lambda: list(game.players.all()), thread_sensitive=True
+        )()
+
+        for player in players:
+            id = await sync_to_async(lambda: player.user.id, thread_sensitive=True)()
+            hole_cards = await sync_to_async(lambda: player.hole_cards, thread_sensitive=True)()
+
+            # Create a personal game state message for each player
+            private_data = {
+                "type": "update_hole_cards",
+                "hole_cards": hole_cards, 
+            }
+
+            # Send this game state **privately** to the respective player
+            await self.channel_layer.group_send(
+                f"user_{id}",
+                {
+                    "type": "send_personal_game_state",
+                    "data": private_data,
+                },
+            )
+
+    async def send_personal_game_state(self, event):
+        """
+        Sends the player's own game state (including their hole cards).
+        """
+        await self.send(text_data=json.dumps(event["data"]))

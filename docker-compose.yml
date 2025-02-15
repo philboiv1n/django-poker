@@ -19,15 +19,13 @@ services:
     volumes:
       - .:/code
       - static_data:/code/poker/staticfiles
-    # environment:
-    #   - DJANGO_SETTINGS_MODULE=poker_project.settings
     env_file:
       - .env
     depends_on:
       - redis
 
   redis:
-    image: redis:latest
+    image: redis:7.4.2-alpine
     container_name: poker-redis
     ports:
       - 6379:6379

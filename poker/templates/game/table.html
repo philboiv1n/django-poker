@@ -21,6 +21,7 @@
   {% endfor %}
 </ul>
 
+
 <!-- Join Table Button (Initially shown) -->
 <button id="join-button" onclick="sendJoin()" 
     {% if is_player or players|length >= game.max_players %}style="display:none;"{% endif %}>
@@ -44,6 +45,7 @@
     {% endfor %}
   </span></p>
 
+  
 
   <!-- Display the current player's turn -->
   Player's turn : <span id="current-turn">
@@ -60,6 +62,7 @@
 <!-- Player Actions -->
 <div id="action-buttons-container" style="display: block;">
     <h3>Action:</h3>
+    <p id="hole-cards">[ No cards ]</p>
     <button id="check-button" onclick="sendAction('check')" class="action-button" disabled>Check</button>
     <button id="fold-button" onclick="sendAction('fold')" class="action-button" disabled>Fold</button>
 </div>
@@ -70,8 +73,9 @@
 <ul id="action-messages"></ul>
 
 
-
-
+<!---------------------------------------------------------------------------
+  Javascript  
+---------------------------------------------------------------------------->
 
 <script>
 
@@ -79,14 +83,12 @@
   let username = "{{ request.user.username }}";  // Get the current user's name
   let reconnectInterval = 5000;  // 5 seconds before trying to reconnect
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
-  //let socket = null;
   
 
   function sendAction(action) {
     // Ensure WebSocket is open before sending data
     if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: action, player: username }));
-        console.log(`🟢 Sent action: ${action} by ${username}`);
     } else {
         console.warn("WebSocket is not open. Cannot send action.");
     }
@@ -95,27 +97,23 @@
 
 
   function updatePlayerList(players) {
-        const playerList = document.getElementById("players-list");
-        const playerCount = document.getElementById("player-count");
+    const playerList = document.getElementById("players-list");
+    const playerCount = document.getElementById("player-count");
 
-        // Clear current list
-        playerList.innerHTML = "";
+    // Clear current list
+    playerList.innerHTML = "";
 
-        // Update player count
-        playerCount.innerText = players.length;
+    // Update player count
+    playerCount.innerText = players.length;
 
-        // Add updated players
-        players.forEach(player => {
-            const li = document.createElement("li");
-            li.setAttribute("data-position", player.position);
-            li.textContent = `${player.username} (Position: ${player.position})`;
-            playerList.appendChild(li);
-        });
-    }
-
-
-
-
+    // Add updated players
+    players.forEach(player => {
+        const li = document.createElement("li");
+        li.setAttribute("data-position", player.position);
+        li.textContent = `${player.username} (Position: ${player.position})`;
+        playerList.appendChild(li);
+    });
+  }
 
 
 
@@ -129,35 +127,41 @@
 
 
     socket.onmessage = function (event) {
-      const ed = JSON.parse(event.data);
+      const data = JSON.parse(event.data);
       
       // Debugging: Log received data
-      console.log("🔵 WebSocket Message Received:", ed);
+      console.log("🔵 WebSocket Message Received:", data);
 
-      if (ed.data) {
+      if (data) {
 
-        if (ed.data.game_status !== undefined) {
-          document.getElementById("game-status").innerText = ed.data.game_status;
+        if (data.hole_cards && data.hole_cards.length > 0) {
+            let holeCardsContainer = document.getElementById("hole-cards");
+            if (holeCardsContainer) {
+                holeCardsContainer.innerText = `[ ${data.hole_cards.join(" ] [ ")} ]`;
+            }
+        }
+
+        if (data.game_status !== undefined) {
+          document.getElementById("game-status").innerText = data.game_status;
         }
 
 
-        if (ed.data.dealer_position !== undefined) {
+        if (data.dealer_position !== undefined) {
           document.getElementById("dealer").innerText = 
-          ed.data.players.find(p => p.position === ed.data.dealer_position)?.username || "Unknown";
+          data.players.find(p => p.position === data.dealer_position)?.username || "Unknown";
         }
 
 
-        if (ed.data.current_turn !== undefined) {
+        if (data.current_turn !== undefined) {
           document.getElementById("current-turn").innerText =
-            ed.data.players.find(p => p.position === ed.data.current_turn)?.username || "Unknown";
+            data.players.find(p => p.position === data.current_turn)?.username || "Unknown";
         }
 
+        if (data.players) {
+          updatePlayerList(data.players);
 
-        if (ed.data.players) {
-          updatePlayerList(ed.data.players);
-
-          const isPlayer = ed.data.players.some(player => player.username === username);
-          const playerCount = ed.data.players.length;
+          const isPlayer = data.players.some(player => player.username === username);
+          const playerCount = data.players.length;
           const maxPlayers = parseInt("{{ game.max_players }}");
 
           const joinButton = document.getElementById("join-button");
@@ -174,10 +178,10 @@
           }
         }
 
-        if (ed.data.current_username || ed.data.current_username === "") {
+        if (data.current_username || data.current_username === "") {
           let actionButtons = document.querySelectorAll(".action-button");
           actionButtons.forEach(button => {
-              if (typeof username !== "" && username === ed.data.current_username && ed.data.game_status === "active") {
+              if (typeof username !== "" && username === data.current_username && data.game_status === "active") {
                   button.disabled = false;  // Enable for current turn user
               } else {
                   button.disabled = true;   // Disable for others
@@ -190,17 +194,17 @@
       
     
       // Handle action messages
-      if (ed.messages) {
+      if (data.messages) {
           
           let messagesList = document.getElementById("action-messages");
           messagesList.innerHTML = ""; 
 
           // Ensure the `ul` element exists before modifying
           if (!messagesList) {
-              console.error("❌ Error: 'action-messages' element not found!");
+              console.error("Error: 'action-messages' element not found!");
               return;
           }
-          ed.messages.forEach(msg => {
+          data.messages.forEach(msg => {
               let li = document.createElement("li");
               li.innerText = msg;
               // messagesList.appendChild(li);
@@ -216,13 +220,14 @@
       setTimeout(connectWebSocket, reconnectInterval);  // Auto-reconnect
     };
 
+
     socket.onerror = function (error) { 
       socket.close();  // Force reconnect on error
     };
 
   }
 
-  
+
   window.onload = function() {
     // Ensure buttons are enabled correctly on page load
     const actionButtons = document.querySelectorAll(".action-button");
@@ -240,6 +245,7 @@
   }
 
   function sendLeave() {
+    document.getElementById("hole-cards").innerText = "[ No cards ]"
     socket.send(JSON.stringify({ action: "leave", player: username }));
   }
 

@@ -20,7 +20,6 @@ from django.utils.timezone import now
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
-# import random
 
 
 # Connect to Redis
@@ -212,14 +211,14 @@ class Game(models.Model):
 
     def broadcast_game_start(self, dealer_username):
         """ Broadcasts the game start message via WebSockets. """
-        message = f"🎲 {dealer_username} is the first dealer! Game has started."
+        message = f"{dealer_username} is the first dealer! Game has started."
         self.broadcast_websocket_message(message)
 
 
 
     def broadcast_new_dealer(self, dealer_username):
         """ Broadcasts when the dealer rotates. """
-        message = f"🔄 {dealer_username} is the new dealer!"
+        message = f"{dealer_username} is the new dealer!"
         self.broadcast_websocket_message(message)
 
 
@@ -275,6 +274,19 @@ class Player(models.Model):
 
     # Assigns a seat in the game
     position = models.PositiveIntegerField(null=True, blank=True)
+
+    # Store hole cards (two private cards per player)
+    hole_cards = models.JSONField(default=list)  # Stores ["4♥︎", "K♠︎"]
+
+    def set_hole_cards(self, cards):
+        """Save hole cards as JSON."""
+        self.hole_cards = cards
+        self.save()
+
+    def clear_hole_cards(self):
+        """Clears hole cards at the end of the round."""
+        self.hole_cards = []
+        self.save()
 
     def save(self, *args, **kwargs):
         """

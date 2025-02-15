@@ -13,5 +13,5 @@ from .consumers import GameConsumer
 # A list of URL patterns for WebSocket connections.
 # Each entry maps a URL path to an ASGI consumer.
 websocket_urlpatterns = [
-    path("ws/game/<int:game_id>/", GameConsumer.as_asgi()),
+    path("ws/game/<int:game_id>/", GameConsumer.as_asgi()), # Game table
 ]
