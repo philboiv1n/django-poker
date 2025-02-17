@@ -99,12 +99,11 @@ class Game(models.Model):
 
     # Available game types (can be extended with more variants in the future).
     GAME_TYPES = [
-        ("texas_holdem", "Texas Hold'em"),
+        ("sit_and_go", "Texas Hold'em - Sit & Go"),
     ]
 
     # Betting structures: Limit or No-Limit.
     BETTING_TYPES = [
-        ("limit", "Limit"),
         ("no_limit", "No-Limit"),
     ]
 
@@ -113,7 +112,7 @@ class Game(models.Model):
 
     # The variant of poker being played, e.g., Texas Hold'em.
     game_type = models.CharField(
-        max_length=20, choices=GAME_TYPES, default="texas_holdem"
+        max_length=20, choices=GAME_TYPES, default="sit_and_go"
     )
 
     # The betting style used for this game: Limit or No-Limit.
@@ -125,8 +124,6 @@ class Game(models.Model):
     buy_in = models.PositiveIntegerField(default=1000)
 
     # The blinds (forced bets) in the game:
-    # - small_blind
-    # - big_blind
     small_blind = models.PositiveIntegerField(default=50)
     big_blind = models.PositiveIntegerField(default=100)
 
@@ -141,18 +138,15 @@ class Game(models.Model):
     )
 
     # Current status of the game:
-    # - "waiting": waiting for players
-    # - "active": game in progress
-    # - "finished": game has ended
-    status = models.CharField(max_length=20, default="waiting")
+    # - "Waiting": waiting for players
+    # - "Active": game in progress
+    # - "Finished": game has ended
+    status = models.CharField(max_length=20, default="Waiting")
 
     # Tracks dealer position (where dealing starts)
-    # dealer_position = models.PositiveIntegerField(default=0)
     dealer_position = models.IntegerField(null=True, blank=True)
 
     # Tracks which player's turn it is (position in game)
-    #current_turn = models.PositiveIntegerField(null=True, blank=True)
-    # current_turn = models.IntegerField(default=0) 
     current_turn = models.IntegerField(null=True, blank=True) 
 
 

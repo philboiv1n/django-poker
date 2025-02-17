@@ -2,74 +2,78 @@
 {% block title %}{{ game.name }} -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
 
-<h2>{{ game.name }}</h2>
+<!---------------------------------------------------------------------------
+  Game information
+---------------------------------------------------------------------------->
+
+<h1>{{ game.name }}</h1>
 <p>
   {{ game.get_game_type_display }} - {{ game.get_betting_type_display }}<br>
   Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}/{{ game.big_blind }}<br>
-  Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}
+  Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}<br><br>
 </p>
+<hr>
 
-<p>Status: <span id="game-status">{{ game.status }}</span></p>
-
-<!-- Display a list of player on this table -->
-<h3>Players (<span id="player-count">{{ players.count }}</span>/{{ game.max_players }})</h3>
+<!---------------------------------------------------------------------------
+  Players information
+---------------------------------------------------------------------------->
+<h2>Players (<span id="player-count">{{ players.count }}</span>/{{ game.max_players }})</h2>
 <ul id="players-list">
   {% for player in players %}
     <li data-position="{{ player.position }}">
-      {{ player.user.username }} (Position: {{ player.position }})
+      {{ player.user.username }} (Position: {{ player.position }}) Game Chips : {{ player.chips}}
     </li>
   {% endfor %}
 </ul>
 
 
-<!-- Join Table Button (Initially shown) -->
-<button id="join-button" onclick="sendJoin()" 
-    {% if is_player or players|length >= game.max_players %}style="display:none;"{% endif %}>
-    Join Table
-</button>
-
-<!-- Leave Table Button (Initially hidden if not a player) -->
-<button id="leave-button" onclick="sendLeave()" 
-    {% if not is_player %}style="display:none;"{% endif %}>
-    Leave Table
-</button>
-<hr>
+<!-- Join / Leave Table Button  -->
+<button id="join-button" onclick="sendJoin()" disabled>Join Table</button>
+<button id="leave-button" onclick="sendLeave()" disabled>Leave Table</button>
 
 
+<p>Game status: <span id="game-status">{{ game.status }}</span></p>
 
-  <p>Dealer: <span id="dealer">
-    {% for player in players %}
-      {% if player.position == game.dealer_position %}
-        {{ player.user.username }}
-      {% endif %}
-    {% endfor %}
-  </span></p>
+<p>Dealer: <span id="dealer">
+  {% for player in players %}
+    {% if player.position == game.dealer_position %}
+      {{ player.user.username }}
+    {% endif %}
+  {% endfor %}
+</span></p>
 
   
 
-  <!-- Display the current player's turn -->
-  Player's turn : <span id="current-turn">
-    {% for player in players %}
-      {% if player.position == game.current_turn %}
-        {{ player.user.username }}
-      {% endif %}
-    {% endfor %}
-  </span>
+<!-- Display the current player's turn -->
+<p>Player's turn : <span id="current-turn">
+  {% for player in players %}
+    {% if player.position == game.current_turn %}
+      {{ player.user.username }}
+    {% endif %}
+  {% endfor %}
+</span></p><br>
+<hr>
 
 
-
-
-<!-- Player Actions -->
+<!---------------------------------------------------------------------------
+  Actions
+---------------------------------------------------------------------------->
 <div id="action-buttons-container" style="display: block;">
-    <h3>Action:</h3>
-    <p id="hole-cards">[ No cards ]</p>
+    <h2>Action</h2>
+    <!-- <p id="hole-cards">[ No cards ]</p> -->
+    <p id="hole-cards">
+      [ No cards ]
+    </p>
     <button id="check-button" onclick="sendAction('check')" class="action-button" disabled>Check</button>
     <button id="fold-button" onclick="sendAction('fold')" class="action-button" disabled>Fold</button>
 </div>
+<br>
+<hr>
 
-
-
-<h3>Messages:</h3>
+<!---------------------------------------------------------------------------
+  Messages
+---------------------------------------------------------------------------->
+<h2>Messages</h2>
 <ul id="action-messages"></ul>
 
 
@@ -83,6 +87,9 @@
   let username = "{{ request.user.username }}";  // Get the current user's name
   let reconnectInterval = 5000;  // 5 seconds before trying to reconnect
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
+  const joinButton = document.getElementById("join-button");
+  const leaveButton = document.getElementById("leave-button");
+
   
 
   function sendAction(action) {
@@ -110,7 +117,7 @@
     players.forEach(player => {
         const li = document.createElement("li");
         li.setAttribute("data-position", player.position);
-        li.textContent = `${player.username} (Position: ${player.position})`;
+        li.textContent = `${player.username} (Position: ${player.position}) Game Chips : ${player.game_chips}`;
         playerList.appendChild(li);
     });
   }
@@ -120,7 +127,6 @@
   function connectWebSocket() {
 
     socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
-
     socket.onopen = function () {
       document.getElementById("action-messages").innerHTML = "";
     };
@@ -134,50 +140,83 @@
 
       if (data) {
 
-        if (data.hole_cards && data.hole_cards.length > 0) {
-            let holeCardsContainer = document.getElementById("hole-cards");
-            if (holeCardsContainer) {
-                holeCardsContainer.innerText = `[ ${data.hole_cards.join(" ] [ ")} ]`;
-            }
+        // Alert user if error detected
+        if (data.error !== undefined) {
+          alert(data.error);
         }
 
+         // Update game status
         if (data.game_status !== undefined) {
           document.getElementById("game-status").innerText = data.game_status;
         }
 
+        // Display hole cards if available
+        if (data.hole_cards && data.hole_cards.length > 0) {
+          const holeCardsContainer = document.getElementById("hole-cards");
+          holeCardsContainer.innerHTML = ""; // Clear previous cards
+          
+          // Check suit and assign color
+          data.hole_cards.forEach(card => {
+            let rank, suit, color = "black";
 
+            if (card.length === 3) { // Handle "10"
+                rank = card.slice(0, 2);
+                suit = card[2];
+            } else {
+                rank = card[0]; // A, K, Q, J, 9, etc.
+                suit = card[1];  
+            }
+
+            if (suit === "♦" || suit === "♥") {
+                color = "red";
+            }
+
+            const span = document.createElement("span");
+            span.className = `${color}`;
+            span.textContent = `[ ${rank} ${suit} ] `;
+            holeCardsContainer.appendChild(span);
+
+          });
+
+        }
+
+        if (data.total_user_chips >= 0) {
+          document.getElementById("total_user_chips").innerText = data.total_user_chips
+        }
+
+
+        // Update dealer's position
         if (data.dealer_position !== undefined) {
           document.getElementById("dealer").innerText = 
           data.players.find(p => p.position === data.dealer_position)?.username || "Unknown";
         }
 
-
+        // Update current turn player
         if (data.current_turn !== undefined) {
           document.getElementById("current-turn").innerText =
             data.players.find(p => p.position === data.current_turn)?.username || "Unknown";
         }
 
+        // Handle players list
         if (data.players) {
           updatePlayerList(data.players);
 
           const isPlayer = data.players.some(player => player.username === username);
           const playerCount = data.players.length;
           const maxPlayers = parseInt("{{ game.max_players }}");
-
-          const joinButton = document.getElementById("join-button");
-          const leaveButton = document.getElementById("leave-button");
-
+  
           // Handle Join Button Visibility
           if (joinButton) {
-              joinButton.style.display = isPlayer || playerCount >= maxPlayers ? "none" : "block";
+              joinButton.disabled = isPlayer || playerCount >= maxPlayers  || data.game_status == "Finished" ? true : false;
           }
 
           // Handle Leave Button Visibility
           if (leaveButton) {
-              leaveButton.style.display = isPlayer ? "block" : "none";
+            leaveButton.disabled = isPlayer ? false : true;
           }
         }
 
+        // Enable or disable action button
         if (data.current_username || data.current_username === "") {
           let actionButtons = document.querySelectorAll(".action-button");
           actionButtons.forEach(button => {
@@ -207,7 +246,6 @@
           data.messages.forEach(msg => {
               let li = document.createElement("li");
               li.innerText = msg;
-              // messagesList.appendChild(li);
               messagesList.insertBefore(li, messagesList.firstChild);
           });
       }
@@ -248,6 +286,8 @@
     document.getElementById("hole-cards").innerText = "[ No cards ]"
     socket.send(JSON.stringify({ action: "leave", player: username }));
   }
+
+
 
   // Initial WebSocket Connection
   connectWebSocket();

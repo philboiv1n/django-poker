@@ -69,7 +69,7 @@
       </h1>
       <p>
         {% if user.is_authenticated %}
-        Hello {{user.username}}. You have {{user.profile.chips}} chips.<br>
+        Hello {{user.username}}. You have <span id="total_user_chips">{{user.profile.chips}}</span> chips.<br>
         <a href="/">Dashboard</a>
         | <a href="{% url 'profile' %}">Profile</a> | <a href="{% url 'stats' %}">Stats</a> | <a href="{% url 'logout_validation' %}">Logout</a>
           {% if request.user.is_staff %}
