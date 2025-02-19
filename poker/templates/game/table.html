@@ -10,14 +10,21 @@
 <p>
   {{ game.get_game_type_display }} - {{ game.get_betting_type_display }}<br>
   Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}/{{ game.big_blind }}<br>
-  Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}<br><br>
+  Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}<br>
+  Players: {{ game.max_players}}<br>
+  Game status: <span id="game-status">{{ game.status }}</span>
+</p>
+<p>
+  <!-- Join / Leave Table Button  -->
+  <button id="join-button" onclick="sendJoin()" disabled>Join Table</button>
+  <button id="leave-button" onclick="sendLeave()" disabled>Leave Table</button>
 </p>
 <hr>
 
 <!---------------------------------------------------------------------------
   Players information
 ---------------------------------------------------------------------------->
-<h2>Players (<span id="player-count">{{ players.count }}</span>/{{ game.max_players }})</h2>
+<h2>Players [<span id="player-count">{{ players.count }}</span>/{{ game.max_players }}]</h2>
 <ul id="players-list">
   {% for player in players %}
     <li data-position="{{ player.position }}">
@@ -27,31 +34,35 @@
 </ul>
 
 
-<!-- Join / Leave Table Button  -->
-<button id="join-button" onclick="sendJoin()" disabled>Join Table</button>
-<button id="leave-button" onclick="sendLeave()" disabled>Leave Table</button>
 
 
-<p>Game status: <span id="game-status">{{ game.status }}</span></p>
 
-<p>Dealer: <span id="dealer">
+
+
+<!-- Display dealer and the current player's turn -->
+<p>
+  <span id="dealer">
   {% for player in players %}
     {% if player.position == game.dealer_position %}
       {{ player.user.username }}
     {% endif %}
   {% endfor %}
-</span></p>
-
-  
-
-<!-- Display the current player's turn -->
-<p>Player's turn : <span id="current-turn">
+  </span> is the dealer, waiting for <span id="current-turn">
   {% for player in players %}
     {% if player.position == game.current_turn %}
       {{ player.user.username }}
     {% endif %}
   {% endfor %}
-</span></p><br>
+  </span> to play.
+</p>
+
+<!-- Phase -->
+<p>Current Phase : <span id="current-phase"></span></p>
+
+<!-- Pot -->
+<p>Current Pot : <span id="current-pot">0</span></p>
+
+<br>
 <hr>
 
 
@@ -64,8 +75,15 @@
     <p id="hole-cards">
       [ No cards ]
     </p>
-    <button id="check-button" onclick="sendAction('check')" class="action-button" disabled>Check</button>
-    <button id="fold-button" onclick="sendAction('fold')" class="action-button" disabled>Fold</button>
+    <!-- <button id="check-button" onclick="sendAction('check')" class="action-button" disabled>Check</button>
+    <button id="fold-button" onclick="sendAction('fold')" class="action-button" disabled>Fold</button> -->
+
+    <button onclick="sendAction('fold')" class="action-button">Fold</button>
+    <button onclick="sendAction('check')" class="action-button">Check</button>
+    <button onclick="sendAction('call')" class="action-button">Call</button>
+    <button onclick="sendBet(10)" class="action-button">Bet 10</button>
+    <button onclick="sendRaise(20)" class="action-button">Raise 20</button>
+
 </div>
 <br>
 <hr>
@@ -101,6 +119,14 @@
     }
   }
 
+  function sendBet(amount) {
+    socket.send(JSON.stringify({ action: "bet", player: username, amount: amount }));
+  }
+
+  function sendRaise(amount) {
+      socket.send(JSON.stringify({ action: "raise", player: username, amount: amount }));
+  }
+
 
 
   function updatePlayerList(players) {
@@ -117,7 +143,7 @@
     players.forEach(player => {
         const li = document.createElement("li");
         li.setAttribute("data-position", player.position);
-        li.textContent = `${player.username} (Position: ${player.position}) Game Chips : ${player.game_chips}`;
+        li.textContent = `${player.username} (Pos. ${player.position}) Game Chips : ${player.game_chips} Current Bet : ${player.current_bet} `;
         playerList.appendChild(li);
     });
   }
@@ -150,6 +176,16 @@
           document.getElementById("game-status").innerText = data.game_status;
         }
 
+        // Update game phase
+        if (data.current_phase !== undefined) {
+          document.getElementById("current-phase").innerText = data.current_phase;
+        }
+
+        // Update current pot
+        if (data.pot !== undefined) {
+          document.getElementById("current-pot").innerText = data.pot;
+        }
+
         // Display hole cards if available
         if (data.hole_cards && data.hole_cards.length > 0) {
           const holeCardsContainer = document.getElementById("hole-cards");
@@ -180,6 +216,7 @@
 
         }
 
+        // Update total user chips
         if (data.total_user_chips >= 0) {
           document.getElementById("total_user_chips").innerText = data.total_user_chips
         }
@@ -220,7 +257,7 @@
         if (data.current_username || data.current_username === "") {
           let actionButtons = document.querySelectorAll(".action-button");
           actionButtons.forEach(button => {
-              if (typeof username !== "" && username === data.current_username && data.game_status === "active") {
+              if (typeof username !== "" && username === data.current_username && data.game_status === "Active") {
                   button.disabled = false;  // Enable for current turn user
               } else {
                   button.disabled = true;   // Disable for others

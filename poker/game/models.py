@@ -120,6 +120,9 @@ class Game(models.Model):
         max_length=10, choices=BETTING_TYPES, default="no_limit"
     )
 
+    # Store total chips in the game
+    pot = models.PositiveIntegerField(default=0)  
+
     # Amount of chips required to join this table.
     buy_in = models.PositiveIntegerField(default=1000)
 
@@ -147,8 +150,17 @@ class Game(models.Model):
     dealer_position = models.IntegerField(null=True, blank=True)
 
     # Tracks which player's turn it is (position in game)
-    current_turn = models.IntegerField(null=True, blank=True) 
+    current_turn = models.IntegerField(null=True, blank=True)
 
+    # Track the current game phase
+    current_phase = models.CharField(
+        max_length=10, 
+        choices=[("preflop", "Preflop"), ("flop", "Flop"), ("turn", "Turn"), ("river", "River"), ("showdown", "Showdown")], 
+        default="preflop"
+    )
+    
+    # Stores the deck as a list of strings
+    deck = models.JSONField(default=list) 
 
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
@@ -175,11 +187,23 @@ class Game(models.Model):
         if not players:
             return None  # No players left
         
-        for i, player in enumerate(players):
-            if player.position == position:
-                return players[(i + 1) % len(players)].position  # Ensure a valid player is returned
+        # for i, player in enumerate(players):
+        #     if player.position == position:
+        #         return players[(i + 1) % len(players)].position  # Ensure a valid player is returned
     
-        return players[0].position  # Default to first player if something goes wrong
+        # return players[0].position  # Default to first player if something goes wrong
+
+        # Extract player positions into a list
+        positions = [p.position for p in players]
+
+        if position not in positions:
+            return positions[0]  # Default to first player if the given position is invalid
+
+        # Find the index of the current position and get the next player
+        current_index = positions.index(position)
+        next_index = (current_index + 1) % len(positions)  # Loop back if needed
+
+        return positions[next_index]
         
 
     
@@ -260,8 +284,14 @@ class Player(models.Model):
     # The number of chips this user has specifically for this game.
     chips = models.PositiveIntegerField(default=0)
 
+    # Amount bet in this round
+    current_bet = models.PositiveIntegerField(default=0)
+
+    # Whether the player folded
+    has_folded = models.BooleanField(default=False)  
+
     # Indicates if the player is ready to start the game (often used in the lobby).
-    is_ready = models.BooleanField(default=False)
+    # is_ready = models.BooleanField(default=False)
 
     # Tracks the last time the player performed an action (e.g., to detect inactivity).
     last_active = models.DateTimeField(default=now)

@@ -121,8 +121,8 @@ class PlayerAdmin(admin.ModelAdmin):
     Provides custom actions for removing players from games.
     """
 
-    list_display = ("user", "game", "chips", "is_ready", "last_active")
-    list_filter = ("game", "is_ready")
+    list_display = ("user", "game", "chips", "last_active")
+    list_filter = ("game", "user")
     search_fields = ("user__username", "game__name")
     actions = ["remove_from_game", "remove_inactive_players"]
 
