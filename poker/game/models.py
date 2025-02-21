@@ -159,8 +159,11 @@ class Game(models.Model):
         default="preflop"
     )
     
+    # Stores the Flop, Turn, River
+    community_cards = models.JSONField(default=list)  
+
     # Stores the deck as a list of strings
-    deck = models.JSONField(default=list) 
+    deck = models.JSONField(default=list)
 
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
@@ -288,10 +291,10 @@ class Player(models.Model):
     current_bet = models.PositiveIntegerField(default=0)
 
     # Whether the player folded
-    has_folded = models.BooleanField(default=False)  
+    has_folded = models.BooleanField(default=False)
 
-    # Indicates if the player is ready to start the game (often used in the lobby).
-    # is_ready = models.BooleanField(default=False)
+    # Wheter the player has checked
+    has_checked = models.BooleanField(default=False) 
 
     # Tracks the last time the player performed an action (e.g., to detect inactivity).
     last_active = models.DateTimeField(default=now)

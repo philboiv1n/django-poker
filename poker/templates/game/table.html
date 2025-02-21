@@ -28,13 +28,10 @@
 <ul id="players-list">
   {% for player in players %}
     <li data-position="{{ player.position }}">
-      {{ player.user.username }} (Position: {{ player.position }}) Game Chips : {{ player.chips}}
+      {{ player.user.username }} (Position: {{ player.position }}) Game Chips : {{ player.chips}} - Folded? {{ player.has_folded}}
     </li>
   {% endfor %}
 </ul>
-
-
-
 
 
 
@@ -62,6 +59,10 @@
 <!-- Pot -->
 <p>Current Pot : <span id="current-pot">0</span></p>
 
+<!-- Community Cards -->
+<p>Community Cards : <span id="community-cards"></span></p>
+
+
 <br>
 <hr>
 
@@ -82,7 +83,7 @@
     <button onclick="sendAction('check')" class="action-button">Check</button>
     <button onclick="sendAction('call')" class="action-button">Call</button>
     <button onclick="sendBet(10)" class="action-button">Bet 10</button>
-    <button onclick="sendRaise(20)" class="action-button">Raise 20</button>
+    <button onclick="sendBet(20)" class="action-button">Bet 20</button>
 
 </div>
 <br>
@@ -143,7 +144,7 @@
     players.forEach(player => {
         const li = document.createElement("li");
         li.setAttribute("data-position", player.position);
-        li.textContent = `${player.username} (Pos. ${player.position}) Game Chips : ${player.game_chips} Current Bet : ${player.current_bet} `;
+        li.textContent = `${player.username} | Pos. [${player.position}] Game Chips [${player.game_chips}] Current Bet [${player.current_bet}] Folded [${player.has_folded}] Checked [${player.has_checked}] `;
         playerList.appendChild(li);
     });
   }
@@ -184,6 +185,11 @@
         // Update current pot
         if (data.pot !== undefined) {
           document.getElementById("current-pot").innerText = data.pot;
+        }
+
+        // Update current pot
+        if (data.community_cards !== undefined) {
+          document.getElementById("community-cards").innerText = data.community_cards;
         }
 
         // Display hole cards if available
