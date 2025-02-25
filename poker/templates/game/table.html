@@ -8,16 +8,15 @@
 
 <h1>{{ game.name }}</h1>
 <p>
-  {{ game.get_game_type_display }} - {{ game.get_betting_type_display }}<br>
-  Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}/{{ game.big_blind }}<br>
-  Blind Timer: {{ game.blind_timer }} minutes{% if game.blind_timer == 0 %} (No increase){% endif %}<br>
-  Players: {{ game.max_players}}<br>
+  {{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.<br>
+  Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}<br>
   Game status: <span id="game-status">{{ game.status }}</span>
 </p>
+
+<!-- Join / Leave Table Button  -->
 <p>
-  <!-- Join / Leave Table Button  -->
-  <button id="join-button" onclick="sendJoin()" disabled>Join Table</button>
-  <button id="leave-button" onclick="sendLeave()" disabled>Leave Table</button>
+  <button id="join-button" onclick="sendJoin()">Join Table</button>
+  <button id="leave-button" onclick="sendLeave()">Leave Table</button>
 </p>
 <hr>
 
@@ -28,41 +27,45 @@
 <ul id="players-list">
   {% for player in players %}
     <li data-position="{{ player.position }}">
-      {{ player.user.username }} (Position: {{ player.position }}) Game Chips : {{ player.chips}} - Folded? {{ player.has_folded}}
+      {{ player.user.username }} [{{ player.position }}] Game Chips [{{ player.chips}}] Bet [{{ player.current_bet}}] Folded [{{player.has_folded}}] Checked [{{player.has_checked}}]
     </li>
   {% endfor %}
 </ul>
-
-
-
-
-<!-- Display dealer and the current player's turn -->
+  
 <p>
-  <span id="dealer">
-  {% for player in players %}
+<!-- Dealer -->
+Dealer : <span id="dealer">
+  {% for player in players %} 
     {% if player.position == game.dealer_position %}
-      {{ player.user.username }}
+      {{ player.user.username }}   
     {% endif %}
+  {% empty %}
+    Unknown 
   {% endfor %}
-  </span> is the dealer, waiting for <span id="current-turn">
+</span> 
+<br>
+
+<!-- Turn -->
+Next to play : <span id="current-turn">
   {% for player in players %}
     {% if player.position == game.current_turn %}
       {{ player.user.username }}
     {% endif %}
+  {% empty %}
+    Unknown 
   {% endfor %}
-  </span> to play.
-</p>
+</span><br>
 
 <!-- Phase -->
-<p>Current Phase : <span id="current-phase"></span></p>
+Current Phase : <span id="current-phase">{{ game.current_phase }}</span><br>
 
 <!-- Pot -->
-<p>Current Pot : <span id="current-pot">0</span></p>
+Current Pot : <span id="current-pot">{{ game.pot }}</span><br>
 
 <!-- Community Cards -->
-<p>Community Cards : <span id="community-cards"></span></p>
+Community Cards : <span id="community-cards">{{ game.community_cards }}</span><br>
 
-
+</p>
 <br>
 <hr>
 
@@ -82,9 +85,7 @@
     <button onclick="sendAction('fold')" class="action-button">Fold</button>
     <button onclick="sendAction('check')" class="action-button">Check</button>
     <button onclick="sendAction('call')" class="action-button">Call</button>
-    <button onclick="sendBet(10)" class="action-button">Bet 10</button>
-    <button onclick="sendBet(20)" class="action-button">Bet 20</button>
-
+    <button onclick="placeBet()" class="action-button">Bet</button>&nbsp;<input type="number" id="bet-amount" class="action-button" min="1" max="999999" value="10" oninput="validateBetInput(this)">
 </div>
 <br>
 <hr>
@@ -120,13 +121,32 @@
     }
   }
 
+
+  function validateBetInput(input) {
+        // Ensure the value is between 1 and 999999
+        if (input.value < 1) {
+            input.value = 1;
+        } else if (input.value > 999999) {
+            input.value = 999999;
+        }
+    }
+
+  function placeBet() {
+        var betAmount = document.getElementById("bet-amount").value;
+        if (betAmount >= 1 && betAmount <= 999999) {
+            sendBet(parseInt(betAmount));  // Call your betting function
+        } else {
+            alert("Invalid bet amount! Please enter a value between 1 and 999999.");
+        }
+    }
+
   function sendBet(amount) {
     socket.send(JSON.stringify({ action: "bet", player: username, amount: amount }));
   }
 
-  function sendRaise(amount) {
-      socket.send(JSON.stringify({ action: "raise", player: username, amount: amount }));
-  }
+  // function sendRaise(amount) {
+  //     socket.send(JSON.stringify({ action: "raise", player: username, amount: amount }));
+  // }
 
 
 
@@ -144,7 +164,7 @@
     players.forEach(player => {
         const li = document.createElement("li");
         li.setAttribute("data-position", player.position);
-        li.textContent = `${player.username} | Pos. [${player.position}] Game Chips [${player.game_chips}] Current Bet [${player.current_bet}] Folded [${player.has_folded}] Checked [${player.has_checked}] `;
+        li.textContent = `${player.username} [${player.position}] Game Chips [${player.game_chips}] Bet [${player.current_bet}] Folded [${player.has_folded}] Checked [${player.has_checked}] `;
         playerList.appendChild(li);
     });
   }
@@ -187,7 +207,7 @@
           document.getElementById("current-pot").innerText = data.pot;
         }
 
-        // Update current pot
+        // Update community cards
         if (data.community_cards !== undefined) {
           document.getElementById("community-cards").innerText = data.community_cards;
         }
@@ -248,16 +268,25 @@
           const playerCount = data.players.length;
           const maxPlayers = parseInt("{{ game.max_players }}");
   
+          // --------------------------------------------------
+          // REM this 
+           // --------------------------------------------------
           // Handle Join Button Visibility
-          if (joinButton) {
-              joinButton.disabled = isPlayer || playerCount >= maxPlayers  || data.game_status == "Finished" ? true : false;
-          }
+          // if (joinButton) {
+          //     joinButton.disabled = isPlayer || playerCount >= maxPlayers  || data.game_status == "Finished" ? true : false;
+          // }
 
-          // Handle Leave Button Visibility
-          if (leaveButton) {
-            leaveButton.disabled = isPlayer ? false : true;
-          }
+          // // Handle Leave Button Visibility
+          // if (leaveButton) {
+          //   leaveButton.disabled = isPlayer ? false : true;
+          // }
+
+          // -------------------------------------------------- 
+
+
         }
+
+
 
         // Enable or disable action button
         if (data.current_username || data.current_username === "") {

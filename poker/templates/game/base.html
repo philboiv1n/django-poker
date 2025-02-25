@@ -9,72 +9,37 @@
     {% block meta %}{% endblock %} 
     <style>
       body {
-        font-family: Arial, Helvetica, sans-serif;
         background-color: #eee;
+        font-family: Arial, Helvetica, sans-serif;
       }
       main {
         padding: 10px 0 20px 0;
       }
-
       hr {
         border: 1px solid #ccc;
       }
+      h1 {font-size: 1.6em;}
+      h2 {font-size: 1.4em;}
+      h3 {font-size: 1.2em;}
       .gray_pale {
         color: #999;
       }
       .red, .errorlist {
         color: #ff0000;
       }
-      .messages {
-        list-style: none;
-        padding: 10px;
-      }
-      .messages li {
-          padding: 10px;
-          margin: 5px 0;
-          border-radius: 5px;
-      }
-
-      .messages .info {
-          background-color: #d1ecf1;
-          color: #0c5460;
-          border-left: 5px solid #17a2b8; 
-      }
-
-      .messages .success {
-          background-color: #d4edda;
-          color: #155724;
-          border-left: 5px solid #28a745;
-      }
-
-      .messages .warning {
-          background-color: #fff3cd; 
-          color: #856404;
-          border-left: 5px solid #ffc107;
-      }
-
-      .messages .error {
-          background-color: #f8d7da;
-          color: #721c24;
-          border-left: 5px solid #dc3545;
-      }
-
     </style>
   </head>
   <body>
     <!-- Header Menu -->
     <header>
-      <h1>
-        <span class="red">♦︎</span> ♣︎ <span class="red">♥︎</span> ♠︎ 
-      </h1>
       <p>
         {% if user.is_authenticated %}
-        Hello {{user.username}}. You have <span id="total_user_chips">{{user.profile.chips}}</span> chips.<br>
         <a href="/">Dashboard</a>
         | <a href="{% url 'profile' %}">Profile</a> | <a href="{% url 'stats' %}">Stats</a> | <a href="{% url 'logout_validation' %}">Logout</a>
           {% if request.user.is_staff %}
             | <a href="/admin">Admin</a>
           {% endif %}
+        <br>Hello {{user.username}}. You have <span id="total_user_chips">{{user.profile.chips}}</span> chips.
         {% endif %}
       </p>
       <hr>
@@ -96,10 +61,12 @@
     <!-- Footer -->
     <footer>
       <hr>
-      <p class="gray_pale">A basic Texas Hold'em Poker prototype using Django.
+        <span class="red">♦︎</span> ♣︎ <span class="red">♥︎</span> ♠︎ 
         <br>
-        v.{{ VERSION }}
-      </p>
+        <span class="gray_pale">
+        A basic Texas hold 'em poker web app.
+        <br>
+        Under construction - v.{{ VERSION }}
     </footer>
   </body>
 </html>
