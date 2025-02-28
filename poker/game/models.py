@@ -141,10 +141,10 @@ class Game(models.Model):
     )
 
     # Current status of the game:
-    # - "Waiting": waiting for players
-    # - "Active": game in progress
+    # - "waiting": waiting for players
+    # - "ctive": game in progress
     # - "Finished": game has ended
-    status = models.CharField(max_length=20, default="Waiting")
+    status = models.CharField(max_length=20, default="waiting")
 
     # Tracks dealer position (where dealing starts)
     dealer_position = models.IntegerField(null=True, blank=True)

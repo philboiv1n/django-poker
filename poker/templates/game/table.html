@@ -23,7 +23,7 @@
 <!---------------------------------------------------------------------------
   Players information
 ---------------------------------------------------------------------------->
-<h2>Players [<span id="player-count">{{ players.count }}</span>/{{ game.max_players }}]</h2>
+<h2>Players</h2>
 <ul id="players-list">
   {% for player in players %}
     <li data-position="{{ player.position }}">
@@ -40,7 +40,7 @@ Dealer : <span id="dealer">
       {{ player.user.username }}   
     {% endif %}
   {% empty %}
-    Unknown 
+    
   {% endfor %}
 </span> 
 <br>
@@ -52,7 +52,7 @@ Next to play : <span id="current-turn">
       {{ player.user.username }}
     {% endif %}
   {% empty %}
-    Unknown 
+    
   {% endfor %}
 </span><br>
 
@@ -62,30 +62,33 @@ Current Phase : <span id="current-phase">{{ game.current_phase }}</span><br>
 <!-- Pot -->
 Current Pot : <span id="current-pot">{{ game.pot }}</span><br>
 
-<!-- Community Cards -->
-Community Cards : <span id="community-cards">{{ game.community_cards }}</span><br>
-
 </p>
 <br>
 <hr>
 
 
 <!---------------------------------------------------------------------------
-  Actions
+  Community cards
+---------------------------------------------------------------------------->
+<span id="community-cards" style="display: none;">{{ game.community_cards }}</span>
+<h2>Community cards</h2>
+<span id="communityCardsContainer"></span>
+
+<!---------------------------------------------------------------------------
+  Your cards
 ---------------------------------------------------------------------------->
 <div id="action-buttons-container" style="display: block;">
-    <h2>Action</h2>
-    <!-- <p id="hole-cards">[ No cards ]</p> -->
+    <h2>Your cards</h2>
+
     <p id="hole-cards">
       [ No cards ]
     </p>
-    <!-- <button id="check-button" onclick="sendAction('check')" class="action-button" disabled>Check</button>
-    <button id="fold-button" onclick="sendAction('fold')" class="action-button" disabled>Fold</button> -->
-
+    
     <button onclick="sendAction('fold')" class="action-button">Fold</button>
     <button onclick="sendAction('check')" class="action-button">Check</button>
     <button onclick="sendAction('call')" class="action-button">Call</button>
     <button onclick="placeBet()" class="action-button">Bet</button>&nbsp;<input type="number" id="bet-amount" class="action-button" min="1" max="999999" value="10" oninput="validateBetInput(this)">
+
 </div>
 <br>
 <hr>
@@ -107,11 +110,14 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
   let username = "{{ request.user.username }}";  // Get the current user's name
   let reconnectInterval = 5000;  // 5 seconds before trying to reconnect
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
+  let gamePhase = "{{ game.current_phase }}";
   const joinButton = document.getElementById("join-button");
   const leaveButton = document.getElementById("leave-button");
 
   
-
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
   function sendAction(action) {
     // Ensure WebSocket is open before sending data
     if (socket.readyState === WebSocket.OPEN) {
@@ -121,7 +127,9 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
     }
   }
 
-
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
   function validateBetInput(input) {
         // Ensure the value is between 1 and 999999
         if (input.value < 1) {
@@ -131,6 +139,9 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
         }
     }
 
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
   function placeBet() {
         var betAmount = document.getElementById("bet-amount").value;
         if (betAmount >= 1 && betAmount <= 999999) {
@@ -138,27 +149,26 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
         } else {
             alert("Invalid bet amount! Please enter a value between 1 and 999999.");
         }
-    }
-
+  }
+  
   function sendBet(amount) {
     socket.send(JSON.stringify({ action: "bet", player: username, amount: amount }));
   }
 
-  // function sendRaise(amount) {
-  //     socket.send(JSON.stringify({ action: "raise", player: username, amount: amount }));
-  // }
 
-
-
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
   function updatePlayerList(players) {
     const playerList = document.getElementById("players-list");
-    const playerCount = document.getElementById("player-count");
+    
+    // const playerCount = document.getElementById("player-count");
 
     // Clear current list
     playerList.innerHTML = "";
 
     // Update player count
-    playerCount.innerText = players.length;
+    // playerCount.innerText = players.length;
 
     // Add updated players
     players.forEach(player => {
@@ -171,6 +181,68 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
 
 
 
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
+  function displayCards(cards, containerId) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = ""; // Clear previous cards
+
+    cards.forEach(card => {
+        let rank, suit, icon, color = "black";
+      
+        rank = card[0]; // A, K, Q, J, 9, etc.
+        suit = card[1]; // d, c, h, s
+        icon = "♠︎";
+
+        if (suit == "d") {
+          icon = "♦︎";
+          color = "red";
+        } else if (suit == "c") {
+          icon = "♣︎";
+        } else if (suit == "h") {
+          icon = "♥︎";
+          color = "red";
+        }
+
+        if (rank == "T") {
+          rank = "10";
+        }
+
+        const span = document.createElement("span");
+        span.className = `${color}`;
+        span.innerHTML = `[&nbsp;${rank}&nbsp;${icon}&nbsp;] `;
+        container.appendChild(span);
+    });
+  }
+
+  // -------------------------------------------------------------
+  // Function to extract cards from the hidden span & update UI
+  // -------------------------------------------------------------
+  function loadInitialCommunityCards() {
+      const communityCardsText = document.getElementById("community-cards").innerText.trim();
+
+      // Ensure we have valid data
+      if (communityCardsText.length > 0 && communityCardsText !== "[]") {
+          try {
+              // Convert raw Django output to a clean array format
+              let communityCardsArray = communityCardsText.replace(/[\[\]']/g, "").split(", ");
+              displayCards(communityCardsArray, "communityCardsContainer");
+          } catch (error) {
+              console.error("Error parsing community cards:", error);
+          }
+      }
+    }
+
+    // Run on page load
+    // document.addEventListener("DOMContentLoaded", function () {
+    //     loadInitialCommunityCards();
+    // });                 
+
+
+  // -------------------------------------------------------------
+  // 
+  // -------------------------------------------------------------
   function connectWebSocket() {
 
     socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
@@ -209,36 +281,12 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
 
         // Update community cards
         if (data.community_cards !== undefined) {
-          document.getElementById("community-cards").innerText = data.community_cards;
+          displayCards(data.community_cards, "communityCardsContainer");
         }
 
         // Display hole cards if available
         if (data.hole_cards && data.hole_cards.length > 0) {
-          const holeCardsContainer = document.getElementById("hole-cards");
-          holeCardsContainer.innerHTML = ""; // Clear previous cards
-          
-          // Check suit and assign color
-          data.hole_cards.forEach(card => {
-            let rank, suit, color = "black";
-
-            if (card.length === 3) { // Handle "10"
-                rank = card.slice(0, 2);
-                suit = card[2];
-            } else {
-                rank = card[0]; // A, K, Q, J, 9, etc.
-                suit = card[1];  
-            }
-
-            if (suit === "♦" || suit === "♥") {
-                color = "red";
-            }
-
-            const span = document.createElement("span");
-            span.className = `${color}`;
-            span.textContent = `[ ${rank} ${suit} ] `;
-            holeCardsContainer.appendChild(span);
-
-          });
+          displayCards(data.hole_cards, "hole-cards");
 
         }
 
@@ -251,13 +299,13 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
         // Update dealer's position
         if (data.dealer_position !== undefined) {
           document.getElementById("dealer").innerText = 
-          data.players.find(p => p.position === data.dealer_position)?.username || "Unknown";
+          data.players.find(p => p.position === data.dealer_position)?.username || "";
         }
 
         // Update current turn player
         if (data.current_turn !== undefined) {
           document.getElementById("current-turn").innerText =
-            data.players.find(p => p.position === data.current_turn)?.username || "Unknown";
+            data.players.find(p => p.position === data.current_turn)?.username || "";
         }
 
         // Handle players list
@@ -268,31 +316,13 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
           const playerCount = data.players.length;
           const maxPlayers = parseInt("{{ game.max_players }}");
   
-          // --------------------------------------------------
-          // REM this 
-           // --------------------------------------------------
-          // Handle Join Button Visibility
-          // if (joinButton) {
-          //     joinButton.disabled = isPlayer || playerCount >= maxPlayers  || data.game_status == "Finished" ? true : false;
-          // }
-
-          // // Handle Leave Button Visibility
-          // if (leaveButton) {
-          //   leaveButton.disabled = isPlayer ? false : true;
-          // }
-
-          // -------------------------------------------------- 
-
-
         }
-
-
 
         // Enable or disable action button
         if (data.current_username || data.current_username === "") {
           let actionButtons = document.querySelectorAll(".action-button");
           actionButtons.forEach(button => {
-              if (typeof username !== "" && username === data.current_username && data.game_status === "Active") {
+              if (typeof username !== "" && username === data.current_username && data.game_status === "active" && data.current_phase !== "showdown") {
                   button.disabled = false;  // Enable for current turn user
               } else {
                   button.disabled = true;   // Disable for others
@@ -338,6 +368,27 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
   }
 
 
+
+  // -------------------------------------------------------------
+  // 
+  // -------------------------------------------------------------
+  function sendJoin() {
+    socket.send(JSON.stringify({ action: "join", player: username }));
+  }
+
+  // -------------------------------------------------------------
+  // 
+  // -------------------------------------------------------------
+  function sendLeave() {
+    document.getElementById("hole-cards").innerText = "[ No cards ]"
+    socket.send(JSON.stringify({ action: "leave", player: username }));
+  }
+
+
+
+  // -------------------------------------------------------------
+  // 
+  // -------------------------------------------------------------
   window.onload = function() {
     // Ensure buttons are enabled correctly on page load
     const actionButtons = document.querySelectorAll(".action-button");
@@ -346,18 +397,13 @@ Community Cards : <span id="community-cards">{{ game.community_cards }}</span><b
     } else {
         actionButtons.forEach(button => button.disabled = true);
     }
+
+    if (gamePhase === "showdown") {
+        actionButtons.forEach(button => button.disabled = true);
+    }
+    // Load initial community cards
+    loadInitialCommunityCards();
   };
-
-
-
-  function sendJoin() {
-    socket.send(JSON.stringify({ action: "join", player: username }));
-  }
-
-  function sendLeave() {
-    document.getElementById("hole-cards").innerText = "[ No cards ]"
-    socket.send(JSON.stringify({ action: "leave", player: username }));
-  }
 
 
 
