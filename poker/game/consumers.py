@@ -43,9 +43,11 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.user_channel_name, self.channel_name)
         await self.accept()
 
-        # Retrieve game and broadcast private
+        # Retrieve game and send **private** updates only to this user
         game = await sync_to_async(Game.objects.get)(id=self.game_id)
-        await self.broadcast_private(game)
+
+        # Send private hole cards only to the reconnecting player, not broadcast
+        await self.send_private_game_state(game, self.user) 
 
         # Retrieve & clean past messages from Redis
         redis_key = f"game_{self.game_id}_messages"
@@ -215,7 +217,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             return
 
         # Refund buy-in if game hasn't started
-        if  game.game_type == "sit_and_go" and game.status == "waiting":
+        if game.game_type == "sit_and_go" and game.status == "waiting":
             user = await sync_to_async(lambda: player.user)()
             user_profile = await sync_to_async(lambda: user.profile)()
             await sync_to_async(lambda: setattr(user_profile, "chips", user_profile.chips + game.buy_in))()
@@ -231,7 +233,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         if len(remaining_players) < 2:
             if game.status == "active":
                 game.status = "finished"
-            else:
+            else: # Player leave before the game start
                 game.status = "waiting"
             game.dealer_position = None
             game.current_turn = None
@@ -325,42 +327,34 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Move to the next player
         await self.next_player(game)
 
-
-
+   
     # -----------------------------------------------------------------------
     async def handle_bet(self, game, player, amount):
         """Handles a player making a bet."""
 
-        # Get the highest bet currently on the table
-        highest_bet = await sync_to_async(
-            lambda: max(game.players.values_list("current_bet", flat=True), default=0)
-        )()
-
-         # Fetch the big blind amount (minimum bet requirement)
         big_blind = game.big_blind
+        last_bet = game.last_bet_amount
 
         # Validate the bet
         if amount <= 0 or amount > player.chips:
             await self.send(text_data=json.dumps({"error": "Invalid bet amount."}))
             return
 
-        # Determine the minimum valid bet
-        if highest_bet == 0:
-            # If there's no active bet, bet must be at least the big blind
-            min_bet = big_blind
-        else:
-            # If there's an active bet, raise must be at least the last bet amount
-            min_bet = max(big_blind, highest_bet * 2)
+        # Determine the minimum raise
+        min_raise = big_blind if last_bet == 0 else last_bet * 2
 
-        # Check if the player meets the minimum bet requirement
-        if amount < min_bet and player.chips > min_bet:
-            await self.send(text_data=json.dumps({"error": f"Minimum bet is {min_bet} chips."}))
+        # Check if the player meets the minimum raise requirement
+        if amount < min_raise:
+            await self.send(text_data=json.dumps({"error": f"Minimum raise is {min_raise} chips."}))
             return
 
         # Deduct bet from player's chips
         player.chips -= amount
         player.current_bet += amount
         game.pot += amount
+
+        # Update the last bet amount
+        game.last_bet_amount = amount
 
         # Save updated state
         await sync_to_async(player.save)()
@@ -393,37 +387,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         """
 
         print("* START GAME")
-        # players = await sync_to_async(
-        #     lambda: list(game.players.order_by("position")), thread_sensitive=True
-        # )()       
-        # 
-        #players = await sync_to_async(lambda: list(game.players.all().order_by("position")), thread_sensitive=True)() 
-        # players = await sync_to_async(lambda: list(game.players.filter(has_folded=False).order_by("position")), thread_sensitive=True)()
-
-        # print("Len players",len(players))
-
-        # if len(players) < 2:
-        #     print("*** 1 player left")
-        #     game.status = "finished"
-        #     game.current_turn = None
-        #     game.dealer_position = None
-        #     await sync_to_async(game.save)()
-        #     return
 
         # Initialize for new game
         game.pot = 0
         game.current_phase = "preflop"
         game.community_cards = []
-  
-        # # Create a deck (52 cards)
-        # suits = ["s", "c", "h", "d"] # ["♠", "♣", "♥", "♦"]
-        # ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
-        # deck = [f"{rank}{suit}" for suit in suits for rank in ranks]  # List of all cards
-
-        # # Shuffle and save the deck
-        # random.shuffle(deck)
-        # game.deck = deck
-        
+          
         # Assign dealer
         await self.rotate_dealer(game)
         
@@ -433,8 +402,8 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         players = await sync_to_async(lambda: list(game.players.filter(has_folded=False).order_by("position")), thread_sensitive=True)()
 
-        print("Len players",len(players))
-
+        # If 1 player left - stop the game
+        # Need to assign last user game chips to user account here
         if len(players) < 2:
             print("*** 1 player left")
             game.status = "finished"
@@ -463,58 +432,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.broadcast_messages("🚀 Starting the hand!")
         await self.broadcast_game_state(game)
 
+
     # -----------------------------------------------------------------------
-    # async def assign_blinds(self, game):
-    #     """
-    #     Assigns small and big blinds at the start of each round.
-    #     Small blind is posted by the first player after the dealer.
-    #     Big blind is posted by the second player after the dealer.
-    #     """
-       
-    #     # Get sorted player list
-    #     players = await sync_to_async(lambda: list(game.players.order_by("position")), thread_sensitive=True)()
-
-    #     if len(players) < 2:
-    #         print("Not enough players to assign blinds.")
-    #         return
-
-    #     # Determine small & big blind positions
-    #     dealer_index = next((i for i, p in enumerate(players) if p.position == game.dealer_position), -1)
-    #     if dealer_index == -1:
-    #         print("Dealer position not found.")
-    #         return
-
-    #     small_blind_player = players[(dealer_index + 1) % len(players)]  # Next player after dealer
-    #     big_blind_player = players[(dealer_index + 2) % len(players)]  # Second player after dealer
-
-    #     # Force small & big blinds
-    #     small_blind = game.small_blind
-    #     big_blind = game.big_blind
-
-    #     # Update the pot
-    #     game.pot += small_blind + big_blind
-
-    #     # Deduct blinds from players
-    #     small_blind_player.chips -= small_blind
-    #     small_blind_player.current_bet = small_blind
-    #     await sync_to_async(small_blind_player.save)()
-    #     big_blind_player.chips -= big_blind
-    #     big_blind_player.current_bet = big_blind
-    #     await sync_to_async(big_blind_player.save)()
-
-    #     # Set the first player to act
-    #     first_to_act_index = (dealer_index + 3) % len(players)  # Next player after big blind 
-    #     first_to_act = players[first_to_act_index]
-    #     game.current_turn = first_to_act.position
-    #     await sync_to_async(game.save)()
-        
-    #     # Broadcast blinds
-    #     small_blind_username = await sync_to_async(lambda: small_blind_player.user.username, thread_sensitive=True)()
-    #     big_blind_username = await sync_to_async(lambda: big_blind_player.user.username, thread_sensitive=True)()
-    #     await self.broadcast_messages(f"💰 {small_blind_username} posts SMALL blind ({small_blind} chips).")
-    #     await self.broadcast_messages(f"💰 {big_blind_username} posts BIG blind ({big_blind} chips).")
-      
-
     async def assign_blinds(self, game):
         """
         Assigns small and big blinds at the start of each round.
@@ -544,7 +463,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
             # Check if small blind player has enough chips
             if small_blind_player.chips < small_blind:
-                # await self.handle_leave(game, small_blind_player.user.username)
                 small_blind_username = await sync_to_async(lambda: small_blind_player.user.username, thread_sensitive=True)()
                 await self.handle_leave(game, small_blind_username)
                 players = await sync_to_async(lambda: list(game.players.order_by("position")), thread_sensitive=True)()
@@ -554,7 +472,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
             # Check if big blind player has enough chips
             if big_blind_player.chips < big_blind:
-                # await self.handle_leave(game, big_blind_player.user.username)
                 big_blind_username = await sync_to_async(lambda: big_blind_player.user.username, thread_sensitive=True)()
                 await self.handle_leave(game, big_blind_username)
                 players = await sync_to_async(lambda: list(game.players.order_by("position")), thread_sensitive=True)()
@@ -564,18 +481,25 @@ class GameConsumer(AsyncWebsocketConsumer):
 
             break  # Valid blind assignments
 
-        # Deduct blinds from players
+        # Set pot
         game.pot += small_blind + big_blind
+
+        # Deduct blinds from players
         small_blind_player.chips -= small_blind
         small_blind_player.current_bet = small_blind
+        await sync_to_async(small_blind_player.save)()
+
         big_blind_player.chips -= big_blind
         big_blind_player.current_bet = big_blind
-        await sync_to_async(small_blind_player.save)()
         await sync_to_async(big_blind_player.save)()
 
         # Set the first player to act (after big blind)
         first_to_act_index = (dealer_index + 3) % len(players)
         game.current_turn = players[first_to_act_index].position
+        # await sync_to_async(game.save)()
+
+        # Set last_bet to big blind
+        game.last_bet_amount = big_blind
         await sync_to_async(game.save)()
 
         # Broadcast blinds
@@ -683,6 +607,10 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def end_betting_round(self, game, winner=None):
         """Ends the current betting round and moves to the next phase if needed."""
 
+        print("*** End betting round save game!")
+        game.last_bet_amount = 0  # Reset the last bet for the game
+      
+
         players = await sync_to_async(lambda: list(game.players.all()), thread_sensitive=True)()
         for player in players:
             player.current_bet = 0
@@ -704,8 +632,6 @@ class GameConsumer(AsyncWebsocketConsumer):
                 await self.start_game(game)
             else:
                 game.current_turn = await self.get_first_player_after_dealer(game)
-                # await self.broadcast_messages("🃏 New betting round has started!")
-                print("! end_betting_round - Needed to update FE with cards + phase")
                 await self.broadcast_game_state(game)
 
         await sync_to_async(game.save)()
@@ -762,7 +688,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     
         await sync_to_async(game.save)()
-        # await self.broadcast_messages(f"📢 Game Phase: {game.current_phase.upper()}")
   
 
     # -----------------------------------------------------------------------
@@ -828,14 +753,6 @@ class GameConsumer(AsyncWebsocketConsumer):
                 winner_score = player_score
 
 
-
-            # player.current_bet = 0
-            # player.has_folded = False  # Reset fold status for the next phase
-            # player.has_checked = False
-            # await sync_to_async(player.save)()
-
-        print("Winner Score:",winner_score)
-
         # Identify all winners (handle ties)
         winners = [p for p in players_scores if p["score"] == winner_score]
 
@@ -847,10 +764,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             winner["player"].chips += pot_share
             await sync_to_async(winner["player"].save)()
         
-        # Reset pot and prepare for next hand
-        # game.pot = 0
-        # await sync_to_async(game.save)()
-
+      
         # Broadcast winners
         winner_names = ", ".join(w["username"] for w in winners)
         hand_type = winners[0]["hand_description"]  # Since all winners have the same hand rank
@@ -927,12 +841,13 @@ class GameConsumer(AsyncWebsocketConsumer):
                     if username in dealt_cards:
                         await sync_to_async(player.set_hole_cards)(dealt_cards[username])
 
-                # print(f"Dealt cards: {dealt_cards}") # Debugging
-
         game.deck = deck
    
         # Save the updated game state
         await sync_to_async(game.save)()
+        
+        # Update Front-End
+        await self.broadcast_private(game)
     
 
     # -----------------------------------------------------------------------
@@ -1025,6 +940,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             "game_status": game.status,
             "current_phase": game.current_phase,
             "pot": game.pot,
+            "last_bet_amount": game.last_bet_amount,
             "dealer_position": game.dealer_position,
             "current_turn": game.current_turn,
             "current_username": current_username,
@@ -1032,7 +948,6 @@ class GameConsumer(AsyncWebsocketConsumer):
             "players": [
                 {
                     "username": await sync_to_async(lambda: p.user.username, thread_sensitive=True)(),
-                   # "total_user_chips": await sync_to_async(lambda: p.user.profile.chips, thread_sensitive=True)(),
                     "position": p.position,
                     "game_chips": p.chips,
                     "current_bet": p.current_bet,
@@ -1091,4 +1006,39 @@ class GameConsumer(AsyncWebsocketConsumer):
         """
         Sends the player's own game state (including their hole cards).
         """
+        await self.send(text_data=json.dumps(event["data"]))
+
+
+    # -----------------------------------------------------------------------
+    async def send_private_game_state(self, game, user):
+        """Sends private game state updates only to the reconnecting player."""
+
+        # Get player's private hole cards
+        player = await sync_to_async(
+            lambda: game.players.filter(user=user).first()
+        )()
+        
+        if not player:
+            return  # Player might have left or not be in the game
+
+        hole_cards = player.hole_cards  # Assuming hole_cards is stored in the model
+        total_user_chips = await sync_to_async(lambda: player.user.profile.chips, thread_sensitive=True)()
+
+        private_message = {
+            "type": "private_game_state",
+            "hole_cards": hole_cards,
+            "total_user_chips": total_user_chips,
+        }
+
+        # Send private message only to this user's private channel
+        await self.channel_layer.group_send(
+            self.user_channel_name,  # Only to the current user
+            {
+                "type": "send_private_update",
+                "data": private_message,
+            },
+        )
+
+    async def send_private_update(self, event):
+        """Sends private hole cards update to the reconnecting player."""
         await self.send(text_data=json.dumps(event["data"]))

@@ -152,6 +152,9 @@ class Game(models.Model):
     # Tracks which player's turn it is (position in game)
     current_turn = models.IntegerField(null=True, blank=True)
 
+    # Track the last bet amount
+    last_bet_amount = models.PositiveIntegerField(default=0)
+
     # Track the current game phase
     current_phase = models.CharField(
         max_length=10, 
