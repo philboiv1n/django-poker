@@ -60,10 +60,8 @@ Next to play : <span id="current-turn">
 Current Phase : <span id="current-phase">{{ game.current_phase }}</span><br>
 
 <!-- Pot -->
-Current Pot : <span id="current-pot">{{ game.pot }}</span><br>
+Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
 
-<!-- Last Bet Amount -->
-Last Bet : <span id="last-bet-amount">{{ game.last_bet_amount }}</span><br>
 </p>
 <br>
 <hr>
@@ -269,11 +267,6 @@ Last Bet : <span id="last-bet-amount">{{ game.last_bet_amount }}</span><br>
         // Update current pot
         if (data.pot !== undefined) {
           document.getElementById("current-pot").innerText = data.pot;
-        }
-
-         // Update Last Bet Amount
-         if (data.last_bet_amount !== undefined) {
-          document.getElementById("last-bet-amount").innerText = data.last_bet_amount;
         }
 
         // Update community cards

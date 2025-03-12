@@ -23,7 +23,9 @@ from django.conf import settings
 
 
 # Connect to Redis
-redis_client = redis.Redis(host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True)
+redis_client = redis.Redis(
+    host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True
+)
 
 
 class Profile(models.Model):
@@ -120,8 +122,8 @@ class Game(models.Model):
         max_length=10, choices=BETTING_TYPES, default="no_limit"
     )
 
-    # Store total chips in the game
-    pot = models.PositiveIntegerField(default=0)  
+    # Store the side pots
+    side_pots = models.JSONField(default=list)
 
     # Amount of chips required to join this table.
     buy_in = models.PositiveIntegerField(default=1000)
@@ -152,18 +154,21 @@ class Game(models.Model):
     # Tracks which player's turn it is (position in game)
     current_turn = models.IntegerField(null=True, blank=True)
 
-    # Track the last bet amount
-    last_bet_amount = models.PositiveIntegerField(default=0)
-
     # Track the current game phase
     current_phase = models.CharField(
-        max_length=10, 
-        choices=[("preflop", "Preflop"), ("flop", "Flop"), ("turn", "Turn"), ("river", "River"), ("showdown", "Showdown")], 
-        default="preflop"
+        max_length=10,
+        choices=[
+            ("preflop", "Preflop"),
+            ("flop", "Flop"),
+            ("turn", "Turn"),
+            ("river", "River"),
+            ("showdown", "Showdown"),
+        ],
+        default="preflop",
     )
-    
+
     # Stores the Flop, Turn, River
-    community_cards = models.JSONField(default=list)  
+    community_cards = models.JSONField(default=list)
 
     # Stores the deck as a list of strings
     deck = models.JSONField(default=list)
@@ -171,7 +176,15 @@ class Game(models.Model):
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
 
-   
+    def get_pot(self):
+        """
+        Returns the total amount of chips across all players.
+        """
+        players = list(self.players.order_by("position"))
+        return sum(player.total_bet for player in players)
+       
+            
+
     def get_next_position(self):
         """
         Returns the next available seat position for a new player.
@@ -181,7 +194,6 @@ class Game(models.Model):
             if pos not in existing_positions:
                 return pos
         return None  # No available positions
-    
 
     def get_next_turn_after(self, position):
         """
@@ -192,33 +204,27 @@ class Game(models.Model):
 
         if not players:
             return None  # No players left
-        
-        # for i, player in enumerate(players):
-        #     if player.position == position:
-        #         return players[(i + 1) % len(players)].position  # Ensure a valid player is returned
-    
-        # return players[0].position  # Default to first player if something goes wrong
 
         # Extract player positions into a list
         positions = [p.position for p in players]
 
         if position not in positions:
-            return positions[0]  # Default to first player if the given position is invalid
+            return positions[0]
 
         # Find the index of the current position and get the next player
         current_index = positions.index(position)
         next_index = (current_index + 1) % len(positions)  # Loop back if needed
 
         return positions[next_index]
-        
 
-    
     def rotate_dealer(self):
         """
         Moves the dealer to the next player after a full betting round.
         """
         players = list(self.players.order_by("position"))
-        current_dealer_index = next((i for i, p in enumerate(players) if p.position == self.dealer_position), 0)
+        current_dealer_index = next(
+            (i for i, p in enumerate(players) if p.position == self.dealer_position), 0
+        )
 
         # Move the dealer to the next player
         new_dealer_index = (current_dealer_index + 1) % len(players)
@@ -231,24 +237,18 @@ class Game(models.Model):
         # Notify players via WebSocket
         self.broadcast_new_dealer(players[new_dealer_index].user.username)
 
-
-
     def broadcast_game_start(self, dealer_username):
-        """ Broadcasts the game start message via WebSockets. """
+        """Broadcasts the game start message via WebSockets."""
         message = f"{dealer_username} is the first dealer! Game has started."
         self.broadcast_websocket_message(message)
 
-
-
     def broadcast_new_dealer(self, dealer_username):
-        """ Broadcasts when the dealer rotates. """
+        """Broadcasts when the dealer rotates."""
         message = f"{dealer_username} is the new dealer!"
         self.broadcast_websocket_message(message)
 
-
-
     def broadcast_websocket_message(self, message):
-        """ Sends a WebSocket message to all players in the game. """
+        """Sends a WebSocket message to all players in the game."""
 
         # Store message in Redis (list)
         redis_key = f"game_{self.id}_messages"
@@ -265,7 +265,7 @@ class Game(models.Model):
                 "type": "send_action_message",
                 "message": message,
             },
-)
+        )
 
     def __str__(self):
         """
@@ -293,11 +293,23 @@ class Player(models.Model):
     # Amount bet in this round
     current_bet = models.PositiveIntegerField(default=0)
 
+    # Cumulative bet in the game
+    total_bet = models.IntegerField(default=0)
+
     # Whether the player folded
     has_folded = models.BooleanField(default=False)
 
-    # Wheter the player has checked
-    has_checked = models.BooleanField(default=False) 
+    # Whether the player has checked
+    has_checked = models.BooleanField(default=False)
+
+    # Whether the player is all-in
+    is_all_in = models.BooleanField(default=False)
+
+    # Player is big blind
+    is_big_blind = models.BooleanField(default=False)
+
+    # Whether the player has acted 
+    has_acted_this_round = models.BooleanField(default=False)
 
     # Tracks the last time the player performed an action (e.g., to detect inactivity).
     last_active = models.DateTimeField(default=now)
