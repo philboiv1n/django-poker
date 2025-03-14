@@ -5,6 +5,7 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
 from asgiref.sync import sync_to_async
 from treys import Evaluator, Card
+from itertools import combinations
 from .models import Game, Player, User
 
 # Connect to Redis
@@ -914,7 +915,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.community_cards.extend(game.deck[:3])  # Deal 3 cards
         game.deck = game.deck[3:]  # Remove dealt cards from deck
         await sync_to_async(game.save)()
-        await self.broadcast_messages("📢 The Flop has been dealt!")
+
+        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
+
+        await self.broadcast_messages(
+            f"📢 The Flop has been dealt : {cards_pretty}"
+        )
 
     # -----------------------------------------------------------------------
     async def move_to_turn(self, game):
@@ -925,7 +931,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.burn_card(game)  # Burn 1 card
         game.community_cards.append(game.deck.pop(0))  # Deal 1 card
         await sync_to_async(game.save)()
-        await self.broadcast_messages("📢 The Turn has been dealt!")
+
+        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
+
+        await self.broadcast_messages(
+            f"📢 The Turn has been dealt : {cards_pretty}"
+        )
 
     # -----------------------------------------------------------------------
     async def move_to_river(self, game):
@@ -936,7 +947,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.burn_card(game)  # Burn 1 card
         game.community_cards.append(game.deck.pop(0))  # Deal 1 card
         await sync_to_async(game.save)()
-        await self.broadcast_messages("📢 The River has been dealt!")
+        
+        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
+
+        await self.broadcast_messages(
+            f"📢 The River has been dealt : {cards_pretty}"
+        )
 
     # -----------------------------------------------------------------------
    
@@ -945,7 +961,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         print("* SHOWDOWN")
 
-       
         active_players = await sync_to_async(
             lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
         )()
@@ -956,65 +971,54 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Sort players by their total bet
         active_players.sort(key=lambda p: p.total_bet)
 
-
+        # Build side pots
         side_pots = []
-        previous_bet = 0  # Tracks previous threshold to avoid double-counting
-
-
-         # Carve out pots
+        previous_bet = 0  
         for i, player in enumerate(active_players):
             current_bet = player.total_bet
             if current_bet > previous_bet:
-                # The difference from the previous bet level
                 diff = current_bet - previous_bet
-
-                # Everyone from i onward has contributed at least 'diff' more than previous_bet
                 pot_size = diff * (len(active_players) - i)
-
-                # The players from i onward are eligible for this pot
                 eligible_players = [p.id for p in active_players[i:]]
                 side_pots.append({"amount": pot_size, "eligible_ids": eligible_players})
-
                 previous_bet = current_bet
 
+        # Evaluate each player's best 5-card hand
         community_cards = game.community_cards
         player_hands = []
         for player in active_players:
             username = await sync_to_async(lambda: player.user.username)()
             combined_cards = community_cards + player.hole_cards
-            score, hand_desc = await sync_to_async(self.evaluate_hand)(combined_cards)
-            player_hands.append((score, hand_desc, player))
-            print(score, hand_desc, player)
+            score, rank, best_5_ints = await sync_to_async(self.find_best_five_cards)(combined_cards)
+            player_hands.append((score, rank, best_5_ints, player))
 
         # Sort from best to worst (lowest treys score = best hand)
         player_hands.sort(key=lambda x: x[0])
 
-        # For each side pot, find best among eligible players
+        # Distribute side pots
         for pot in side_pots:
             pot_amount = pot["amount"]
             eligible_ids = pot["eligible_ids"]
 
-            # Among the active_players, find those with an ID in eligible_ids
-            # Then find the best treys score
-            # Note: filter from player_hands because that's already sorted
-            in_contest = [(s, d, p) for (s, d, p) in player_hands if p.id in eligible_ids]
+            # Filter out the players who are eligible for this pot
+            in_contest = [(s, d, b5, p) for (s, d, b5, p) in player_hands if p.id in eligible_ids]
             if not in_contest:
-                # No one is eligible? (shouldn't happen, but just in case)
                 continue
 
             best_score = in_contest[0][0]
-            # find all winners with that score (in case of ties)
-            winners = [p for (s, d, p) in in_contest if s == best_score]
+            winning_records = [(s, d, b5, plyr) for (s, d, b5, plyr) in in_contest if s == best_score]
 
-            share = pot_amount // len(winners)
-            # remainder = pot_amount % len(winners)  # If integer division leftover
-
-            for w in winners:
-                w.chips += share
-                await sync_to_async(w.save)()
-                username = await sync_to_async(lambda: w.user.username)()
+            share = pot_amount // len(winning_records)
+          
+            for (win_score, win_rank, win_5, win_player) in winning_records:
+                win_player.chips += share
+                await sync_to_async(win_player.save)()
+                
+                username = await sync_to_async(lambda: win_player.user.username)()
+                pretty_str = Card.ints_to_pretty_str(win_5)
+                
                 await self.broadcast_messages(
-                    f"🏆 {username} wins the hand and {share} chips! "
+                    f"🏆 {username} wins {share} chips with {pretty_str} ({win_rank})"
                 )
 
 
@@ -1130,23 +1134,47 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Update Front-End
         await self.broadcast_private(game)
 
+
     # -----------------------------------------------------------------------
-    def evaluate_hand(self, hand):
-        """Converts a hand into a numerical score using the Treys Evaluator."""
+    def find_best_five_cards(self, seven_card_strings):
+        """
+        Given 7 card strings (community + hole),
+        returns (best_score, best_rank, best_five_ints).
+
+        - best_score: The numerical Treys 'score' (lower = better).
+        - best_rank:  String describing the class of the hand (e.g. "Straight", "Flush", etc.).
+        - best_five_ints: The best 5-card subset as Treys integers.
+        """
         evaluator = Evaluator()
 
-        # Convert hand strings (e.g., "Ah", "Kd") into Treys Card objects
-        treys_hand = [Card.new(card) for card in hand]
+        # 1. Convert to Treys "card int" objects
+        all_seven_cards = [Card.new(c) for c in seven_card_strings]
 
-        # find score, rank class and rank class string
-        score = evaluator.evaluate([], treys_hand)
-        rank_class = evaluator.get_rank_class(score)
-        rank_class_string = evaluator.class_to_string(rank_class)
+        best_score = 7642 # 7642 distinctly ranked hands in poker.
+        best_five_cards = None
 
-        # Return the score and rank class string
-        return score, rank_class_string
+        # 2. Enumerate all 5-card combos
+        for combo in combinations(all_seven_cards, 5):
+            score = evaluator.evaluate([], list(combo))
+            if score <= best_score:
+                best_score = score
+                best_five_cards = combo
 
-    #
+        # 3. Determine rank class
+        rank_class = evaluator.get_rank_class(best_score)
+        best_rank = evaluator.class_to_string(rank_class)
+
+        # best_five_cards are already "card ints"
+        return best_score, best_rank, best_five_cards
+
+   
+
+    # -----------------------------------------------------------------------
+    def convert_treys_str_int_pretty(self, str_cards) :
+        """ Convert string-based cards -> Treys card ints -> pretty string """
+        cards_ints = [Card.new(c) for c in str_cards]
+        return Card.ints_to_pretty_str(cards_ints)
+
     #
     #
     #
