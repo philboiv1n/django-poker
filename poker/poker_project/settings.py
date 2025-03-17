@@ -45,6 +45,8 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "channels",
+    "tailwind",
+    "theme",
     "game",
 ]
 
@@ -64,7 +66,7 @@ ROOT_URLCONF = "poker_project.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        "DIRS": [BASE_DIR / "theme/templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -151,6 +153,11 @@ CHANNEL_LAYERS = {
     },
 }
 
+
+# Tailwind CSS config
+TAILWIND_APP_NAME = 'theme'
+TAILWIND_CSS_PATH = 'css/dist/styles.css'
+INTERNAL_IPS = ["127.0.0.1"]
 
 # Custom context processor for versioning
 def version_context(request):

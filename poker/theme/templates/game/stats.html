@@ -1,0 +1,174 @@
+{% extends "game/base.html" %}
+{% block title %}Statistics -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
+{% block content %}
+
+  <h1>Statistics for {{ user.username }}</h1>
+  <p>[ Under construction. Come back later! ]</p>
+  Chips: {{ profile.chips }}<br>
+  Total Chips Received: {{ profile.total_chips_received }}<br>
+  Total Chips Won: {{ profile.total_chips_won }}<br>
+  Total Chips Lost: {{ profile.total_chips_lost }}<br>
+  Games Played: {{ profile.games_played }}<br>
+  Games Won: {{ profile.games_won }}<br>
+  Games Lost: {{ profile.games_lost }}<br>
+  Hands Played: {{ profile.hands_played }}<br>
+  Hands Won: {{ profile.hands_won }}<br>
+  Highest Win: {{ profile.highest_win }}<br>
+  Longest Winning Streak: {{ profile.longest_winning_streak }}<br>
+  Longest Losing Streak: {{ profile.longest_losing_streak }}<br>
+  Average Bet: {{ profile.average_bet }}<br>
+  Ranking: {{ profile.ranking }}<br>
+  Royal Flushes: {{ profile.royal_flushes }}<br>
+  Straight Flushes: {{ profile.straight_flushes }}<br>
+  Four of a Kinds: {{ profile.four_of_a_kinds }}<br>
+  Full Houses: {{ profile.full_houses }}<br>
+  
+  
+  <p>Win Rate: {% if profile.games_played > 0 %} 
+      {{ profile.games_won|floatformat:2 }} / {{ profile.games_played }} 
+      ({{ profile.games_won|floatformat:2|divisibleby:profile.games_played|default:"0%" }}) 
+      {% else %} 0% {% endif %}
+  </p>
+  
+
+
+   
+
+   
+
+    <!-- <div class="w-full flex flex-col items-center p-4 bg-gray-800 rounded-lg">
+      <h1 class="text-2xl font-bold">Texas Hold'em Poker Table</h1>
+      <div class="text-sm mt-2">Type: No Limit | Players: 6/10 | Buy-in: $100 | Blinds: 10/20</div>
+      <div class="text-sm">Status: Ongoing | Phase: Flop | Pot: $500</div>
+   </div> -->
+
+    <!-- Player Section -->
+      <div class="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-5 gap-4 w-full mt-4">
+        <!-- 10 Player Slots -->
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+            <span class="text-sm">Player 1</span>
+            <span class="text-xs">Chips: $1500</span>
+            <span class="text-xs text-yellow-400">Dealer</span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+            <span class="text-sm">Player 2</span>
+            <span class="text-xs">$1200</span>
+            <span class="text-xs text-red-400">Big Blind</span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+            <span class="text-sm">Player 3</span>
+            <span class="text-xs">$1300</span>
+            <span class="text-xs text-green-400">Small Blind</span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 4</span>
+          <span class="text-xs">$1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 5</span>
+          <span class="text-xs">Chips: $1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 6</span>
+          <span class="text-xs">Chips: $1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 7</span>
+          <span class="text-xs">Chips: $1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 8</span>
+          <span class="text-xs">Chips: $1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 9</span>
+          <span class="text-xs">Chips: $1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+        <div class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30">
+          <span class="text-sm">Player 10</span>
+          <span class="text-xs">Chips: $1300</span>
+          <span class="text-xs text-green-400"></span>
+        </div>
+    </div>
+
+
+    
+            
+            <!-- Bottom Row (User Cards & Controls) -->
+            <div class="col-span-5 flex justify-center mt-4">
+                <div class="flex flex-col items-center p-4 bg-gray-800 rounded-lg w-40">
+                    <span class="text-lg font-semibold">You</span>
+                    <div class="flex gap-2 mt-2">
+                        <div class="w-12 h-16 bg-red-500 rounded-lg"></div>
+                        <div class="w-12 h-16 bg-black rounded-lg"></div>
+                    </div>
+                    <span class="mt-2">Chips: $2000</span>
+                </div>
+            </div>
+        
+          </div>
+    </div>
+
+    <!-- Community Cards & Pot -->
+    <!-- <div class="flex flex-col items-center my-6">
+        <div class="flex gap-2">
+            <div class="w-12 h-16 bg-blue-500 rounded-lg"></div>
+            <div class="w-12 h-16 bg-blue-500 rounded-lg"></div>
+            <div class="w-12 h-16 bg-blue-500 rounded-lg"></div>
+            <div class="w-12 h-16 bg-blue-500 rounded-lg"></div>
+            <div class="w-12 h-16 bg-blue-500 rounded-lg"></div>
+        </div>
+        <span class="text-lg mt-2">Total Pot: $500</span>
+    </div> -->
+    <!-- Community Cards & Pot -->
+    <div class="flex flex-col items-center my-6">
+      <div class="flex gap-2">
+          <div class="card black">A♠</div>
+          <div class="card red">K♥</div>
+          <div class="card black">Q♣</div>
+          <div class="card red">J♦</div>
+          <div class="card black">10♠</div>
+      </div>
+      <span class="text-lg mt-2">Total Pot: $500</span>
+  </div>
+
+    <!-- Player Actions -->
+    <div class="flex flex-col items-center w-full p-4 bg-gray-800 rounded-lg">
+        <div class="flex gap-2">
+            <button class="bg-red-500 px-4 py-2 rounded">Fold</button>
+            <button class="bg-yellow-500 px-4 py-2 rounded">Check</button>
+            <button class="bg-green-500 px-4 py-2 rounded">Call</button>
+            <button class="bg-blue-500 px-4 py-2 rounded">All-in</button>
+        </div>
+        <div class="flex gap-2 mt-2">
+            <input type="number" placeholder="Bet Amount" class="bg-gray-600 text-white p-2 rounded">
+            <button class="bg-purple-500 px-4 py-2 rounded">Bet</button>
+        </div>
+    </div>
+
+    <!-- Message Log -->
+    <div class="w-full h-32 mt-4 bg-gray-700 p-2 rounded-lg overflow-y-auto">
+        <p class="text-sm">Player 1: Raised to $100</p>
+        <p class="text-sm">Player 2: Folded</p>
+        <p class="text-sm">Player 3: Called $100</p>
+    </div>
+
+    <!-- Bottom Menu -->
+    <div class="bottom-0 w-full flex justify-between p-4 bg-gray-800 text-white">
+        <span>Chips: $5000</span>
+        <div class="flex gap-4">
+            <button class="px-4 py-2 bg-gray-600 rounded">Profile</button>
+            <button class="px-4 py-2 bg-gray-600 rounded">Stats</button>
+            <button class="px-4 py-2 bg-gray-600 rounded">Settings</button>
+        </div>
+    </div>
+</body>
+
+  
+{% endblock %}

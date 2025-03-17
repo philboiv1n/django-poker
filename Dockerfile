@@ -11,7 +11,11 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /code
 
 # Install system-level dependencies
-RUN apk add --no-cache build-base
+# RUN apk add --no-cache build-base
+RUN apk add --no-cache \
+    build-base \
+    nodejs \
+    npm
 
 # Copy requirements first for better caching
 COPY ./requirements.txt ./
