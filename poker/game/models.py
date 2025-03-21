@@ -217,56 +217,6 @@ class Game(models.Model):
 
         return positions[next_index]
 
-    def rotate_dealer(self):
-        """
-        Moves the dealer to the next player after a full betting round.
-        """
-        players = list(self.players.order_by("position"))
-        current_dealer_index = next(
-            (i for i, p in enumerate(players) if p.position == self.dealer_position), 0
-        )
-
-        # Move the dealer to the next player
-        new_dealer_index = (current_dealer_index + 1) % len(players)
-        self.dealer_position = players[new_dealer_index].position
-
-        # First turn goes to the player after the dealer
-        self.current_turn = self.get_next_turn_after(self.dealer_position)
-        self.save()
-
-        # Notify players via WebSocket
-        self.broadcast_new_dealer(players[new_dealer_index].user.username)
-
-    def broadcast_game_start(self, dealer_username):
-        """Broadcasts the game start message via WebSockets."""
-        message = f"{dealer_username} is the first dealer! Game has started."
-        self.broadcast_websocket_message(message)
-
-    def broadcast_new_dealer(self, dealer_username):
-        """Broadcasts when the dealer rotates."""
-        message = f"{dealer_username} is the new dealer!"
-        self.broadcast_websocket_message(message)
-
-    def broadcast_websocket_message(self, message):
-        """Sends a WebSocket message to all players in the game."""
-
-        # Store message in Redis (list)
-        redis_key = f"game_{self.id}_messages"
-        redis_client.rpush(redis_key, message)
-
-        # Limit storage to last 10 messages
-        redis_client.ltrim(redis_key, -10, -1)
-
-        channel_layer = get_channel_layer()
-
-        async_to_sync(channel_layer.group_send)(
-            f"game_{self.id}",
-            {
-                "type": "send_action_message",
-                "message": message,
-            },
-        )
-
     def __str__(self):
         """
         Returns a string representation of the game, including the name, game type,

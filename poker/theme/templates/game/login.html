@@ -2,38 +2,6 @@
 {% block title %}Login -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
 
-<!-- <div>
-  <h1 class="mb-4 text-2xl leading-none">Login</h1>
-  <div>
-  <form method="post">
-    {% csrf_token %} 
-    {{ form.as_p }}
-    <button type="submit">Login</button>
-  </form>
-</div>
-</div> -->
-
-
-<!-- <div class="flex justify-center items-center h-screen">
-  <div class="bg-gray-800 p-6 rounded-lg shadow-lg w-96">
-      <h2 class="text-2xl font-bold mb-4 text-center">Login</h2>
-      <form action="#" method="POST">
-          <div class="mb-4">
-              <label for="username" class="block text-sm font-medium mb-1">Username</label>
-              <input type="text" id="username" name="username" class="w-full p-2 bg-gray-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-          </div>
-          <div class="mb-4">
-              <label for="password" class="block text-sm font-medium mb-1">Password</label>
-              <input type="password" id="password" name="password" class="w-full p-2 bg-gray-700 text-white rounded focus:outline-none focus:ring-2 focus:ring-blue-500" required>
-          </div>
-          {% csrf_token %} 
-          {{ form.as_p }}
-          <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded">Login</button>
-      </form>
-  </div>
-</div> -->
-
-
 <div class="flex justify-center items-center h-screen">
     <form method="POST" action="{% url 'login' %}" class="bg-gray-800 p-6 rounded-lg shadow-lg w-96">
         {% csrf_token %}
@@ -60,7 +28,7 @@
             {% endif %}
         </div>
         
-        <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded">
+        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded text-center">
             Login
         </button>
         

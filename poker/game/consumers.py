@@ -310,7 +310,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         difference = highest_bet - player.current_bet
 
         if difference > 0:
-            await self.send(json.dumps({"error": "Cannot check when facing a bet. Must call or fold."}))
+            await self.send(json.dumps({"error": "Cannot check when facing a bet. Must call, fold or bet."}))
             return
 
         # Mark the player as checked
@@ -695,8 +695,19 @@ class GameConsumer(AsyncWebsocketConsumer):
         
         if all_all_in:
             print("* ALL PLAYERS ALL-IN -> ADVANCING ROUND")
-            await self.advance_hand_phase(game)
+
+            #
+            # Need to test this
+            # Should be into a function, also used by the post action flow
+            #
+            
+            while game.current_phase != "showdown":
+                await self.advance_hand_phase(game)
+            await self.start_hand(game)   
             return
+        
+            # await self.advance_hand_phase(game)
+            # return
 
         # Find the index of the current turn
         current_index = next((i for i, p in enumerate(active_players) if p.position == game.current_turn),-1,)

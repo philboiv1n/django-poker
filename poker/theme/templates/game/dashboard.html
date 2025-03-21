@@ -2,20 +2,21 @@
 {% block title %}Dashboard -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
 
-  <h2>Dashboard</h2>
-
-  Please choose a poker table to start : 
-
-  <ul>
-    {% for game in games %}
-    <li>
-      <strong><a href="{% url 'table' game.id %}">{{ game.name }}</a></strong> - 
-      {{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) - 
-      Players: {{ game.players.count }}/{{ game.max_players }} - Buy-in: {{ game.buy_in }} - Blinds : {{ game.small_blind }} / {{ game.big_blind }} 
-    </li>
-    {% empty %}
-      <li>Sorry, no available tables at the moment.</li>
-    {% endfor %}
+  <h1 class="text-xl md:text-2xl my-4">Available Poker Tables</h1>
+  
+  <ul class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {% for game in games %}
+      <li class="bg-gray-800 p-4 rounded-lg shadow-md auto-cols-max">
+        <h2 class="text-lg font-bold">{{ game.name }}</h2>
+        <p class="text-sm text-gray-300">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }})</p>
+        <p class="text-sm">Players: <span class="font-semibold">{{ game.players.count }}/{{ game.max_players }}</span></p>
+        <p class="text-sm">Buy-in: <span class="font-semibold">{{ game.buy_in }}</span></p>
+        <p class="text-sm">Blinds: <span class="font-semibold">{{ game.small_blind }} / {{ game.big_blind }}</span></p>
+        <a href="{% url 'table' game.id %}" class="mt-4 block w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-lg text-center">View Table</a>
+      </li>
+      {% empty %}
+        <li>Sorry, no available tables at the moment.</li>
+      {% endfor %}
   </ul>
 
 {% endblock %}

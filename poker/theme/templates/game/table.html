@@ -2,106 +2,143 @@
 {% block title %}{{ game.name }} -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
 
+
+<div class="bg-gray-800 rounded-lg w-full py-2 px-4 pb-8 text-center">
 <!---------------------------------------------------------------------------
   Game information
 ---------------------------------------------------------------------------->
 
-<h1>{{ game.name }}</h1>
-<p>
-  {{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.<br>
-  Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}<br>
-  Game status: <span id="game-status">{{ game.status }}</span>
-</p>
+<div class="md:w-3/5 lg:w-1/2 p-4 mx-auto">
+  <h1 class="text-xl md:text-2xl my-2">{{ game.name }}</h1>
+  <div class="text-sm">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.</div>
+  <div class="text-sm">Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}</div>
+  <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span> (<span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span>)</div>
+  <div class="text-sm">
+    
+      <!-- Dealer -->
+      Dealer : <span id="dealer">
+        {% for player in players %} 
+          {% if player.position == game.dealer_position %}
+            {{ player.user.username }}   
+          {% endif %}
+        {% empty %}
+          
+        {% endfor %}
+      </span> 
+      <br>
+      
+      <!-- Turn -->
+      Next to play : <span id="current-turn">
+        {% for player in players %}
+          {% if player.position == game.current_turn %}
+            {{ player.user.username }}
+          {% endif %}
+        {% empty %}
+          
+        {% endfor %}
+      </span>
+      
+      
+  </div>
+  
+  <!-- Join / Leave Table Button  -->
+    <button id="join-button" onclick="sendJoin()" 
+      class="my-4 p-2 mr-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-center shadow-lg">Join Table</button>
+    <button id="leave-button" onclick="sendLeave()" 
+      class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-lg">Leave Table</button>
 
-<!-- Join / Leave Table Button  -->
-<p>
-  <button id="join-button" onclick="sendJoin()">Join Table</button>
-  <button id="leave-button" onclick="sendLeave()">Leave Table</button>
-</p>
-<hr>
+</div>
 
 <!---------------------------------------------------------------------------
   Players information
 ---------------------------------------------------------------------------->
-<h2>Players</h2>
-<ul id="players-list">
+
+<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full my-4 p-4">
   {% for player in players %}
-    <li data-position="{{ player.position }}">
-      {{ player.user.username }} [{{ player.position }}] Game Chips [{{ player.chips}}] Bet [{{ player.current_bet}}] Folded [{{player.has_folded}}] Checked [{{player.has_checked}}]
+    <li data-position="{{ player.position }}"
+        class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-36 sm:w-1/2 lg:w-[18%] shadow-lg">
+      <span class="text-sm">{{ player.user.username }} [{{ player.position }}]</span>
+      <span class="text-sm">Table chips: {{ player.chips }}</span>
+      <span class="text-sm">Bet: {{ player.current_bet }}</span>
+      <span class="text-xs">Folded [{{ player.has_folded }}] Checked [{{ player.has_checked }}]</span>
+      <!-- <span class="text-xs text-green-400">
+        {% if player.position == game.dealer_position %}
+          Dealer
+        {% endif %}
+      </span> -->
     </li>
   {% endfor %}
 </ul>
   
-<p>
-<!-- Dealer -->
-Dealer : <span id="dealer">
-  {% for player in players %} 
-    {% if player.position == game.dealer_position %}
-      {{ player.user.username }}   
-    {% endif %}
-  {% empty %}
-    
-  {% endfor %}
-</span> 
-<br>
-
-<!-- Turn -->
-Next to play : <span id="current-turn">
-  {% for player in players %}
-    {% if player.position == game.current_turn %}
-      {{ player.user.username }}
-    {% endif %}
-  {% empty %}
-    
-  {% endfor %}
-</span><br>
-
-<!-- Phase -->
-Current Phase : <span id="current-phase">{{ game.current_phase }}</span><br>
-
-<!-- Pot -->
-Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
-
-</p>
-<br>
-<hr>
 
 
 <!---------------------------------------------------------------------------
   Community cards
 ---------------------------------------------------------------------------->
 <span id="community-cards" style="display: none;">{{ game.community_cards }}</span>
-<h2>Community cards</h2>
-<span id="communityCardsContainer"></span>
 
-<!---------------------------------------------------------------------------
-  Your cards
----------------------------------------------------------------------------->
-<div id="action-buttons-container" style="display: block;">
-    <h2>Your cards</h2>
-
-    <p id="hole-cards">
-      [ No cards ]
-    </p>
-    
-    <button onclick="sendAction('fold')" class="action-button">Fold</button>
-    <button onclick="sendAction('check')" class="action-button">Check</button>
-    <button onclick="sendAction('call')" class="action-button">Call</button>
-    <button onclick="placeBet()" class="action-button">Bet</button>&nbsp;<input type="number" id="bet-amount" class="action-button" min="1" max="999999999" value="{{ game.big_blind }}" oninput="validateBetInput(this)">
-    
+  <div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
+  <h2 class="text-xl">Community cards</h2>
+  <div>
+    Total Pot : <span id="current-pot">{{ game.get_pot }}</span>
+  </div>
+  <div class="flex flex-col my-6">
+    <div class="flex gap-2" id="communityCardsContainer"></div>
+  </div>
+  
 </div>
-<br>
-<hr>
+
+
+ <!---------------------------------------------------------------------------
+  Player cards and actions
+  ---------------------------------------------------------------------------->
+  <div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
+
+    <div class="text-l">Your cards</div>
+    <div class="flex gap-2 pt-2 pb-6" id="hole-cards"></div>
+
+  <div class="flex gap-4">
+      <button onclick="sendAction('fold')" class="bg-red-500 px-4 py-2 rounded action-button">Fold</button>
+      <button onclick="sendAction('check')" class="bg-yellow-500 px-4 py-2 rounded action-button">Check</button>
+      <button onclick="sendAction('call')" class="bg-green-500 px-4 py-2 rounded action-button">Call</button>
+      <button class="bg-blue-500 px-4 py-2 rounded action-button">All-in</button>
+  </div>
+  <div class="flex gap-4 mt-4">
+      <input type="number" id="bet-amount" placeholder="Bet Amount" min="1" max="999999999" value="{{ game.big_blind }}" 
+        oninput="validateBetInput(this)" class="bg-gray-600 text-white p-2 rounded">
+      <button onclick="placeBet()" class="bg-purple-500 px-4 py-2 rounded action-button">Bet</button>
+  </div>
+</div>
 
 <!---------------------------------------------------------------------------
   Messages
 ---------------------------------------------------------------------------->
-<h2>Messages</h2>
-<ul id="action-messages"></ul>
+
+  <div class="text-left md:w-3/5 lg:w-1/2 bg-gray-600 rounded-lg p-4 mx-auto">
+    <h2>Messages</h2>
+    <ul id="action-messages"></ul>
+  </div>
+
+</div>
 
 
 <!---------------------------------------------------------------------------
-  Javascript  
+End of HTML
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Javascript  
 ---------------------------------------------------------------------------->
 
 <script>
@@ -111,8 +148,8 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
   let reconnectInterval = 5000;  // 5 seconds before trying to reconnect
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
   let gamePhase = "{{ game.current_phase }}";
-  const joinButton = document.getElementById("join-button");
-  const leaveButton = document.getElementById("leave-button");
+  let gameStatus = "{{ game.status }}";
+  let isPlayer = "{{ is_player }}";
 
   
   // -------------------------------------------------------------
@@ -131,7 +168,6 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
   //
   // -------------------------------------------------------------
   function validateBetInput(input) {
-        // Ensure the value is between 1 and 999999999
         if (input.value < 0) {
             input.value = 1;
         } else if (input.value > 999999999) {
@@ -144,7 +180,7 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
   // -------------------------------------------------------------
   function placeBet() {
         var betAmount = document.getElementById("bet-amount").value;
-        if (betAmount >= 1 && betAmount <= 999999) {
+        if (betAmount >= 1 && betAmount <= 999999999) {
             sendBet(parseInt(betAmount));  // Call your betting function
         } else {
             alert("Invalid bet amount! Please enter a value between 1 and 999999.");
@@ -161,16 +197,21 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
   // -------------------------------------------------------------
   function updatePlayerList(players) {
     const playerList = document.getElementById("players-list");
-    
-    // Clear current list
     playerList.innerHTML = "";
-
-    // Add updated players
     players.forEach(player => {
-        const li = document.createElement("li");
-        li.setAttribute("data-position", player.position);
-        li.textContent = `${player.username} [${player.position}] Game Chips [${player.game_chips}] Bet [${player.current_bet}] Folded [${player.has_folded}] Checked [${player.has_checked}] `;
-        playerList.appendChild(li);
+      const li = document.createElement("li");
+      li.setAttribute("data-position", player.position);
+      li.setAttribute("class", "flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30");
+
+      li.innerHTML = `
+          <span class="text-sm">${player.username} [${player.position}]</span>
+          <span class="text-sm">Table chips: ${player.game_chips}</span>
+          <span class="text-sm">Bet: ${player.current_bet}</span>
+          <span class="text-xs">Folded: ${player.has_folded} | Checked: ${player.has_checked}</span>
+          <span class="text-xs text-green-400"></span>
+      `;
+
+      playerList.appendChild(li);
     });
   }
 
@@ -204,10 +245,10 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
           rank = "10";
         }
 
-        const span = document.createElement("span");
-        span.className = `${color}`;
-        span.innerHTML = `[&nbsp;${rank}&nbsp;${icon}&nbsp;] `;
-        container.appendChild(span);
+        const div = document.createElement("div");
+        div.className = `card ${color} shadow-xl`;
+        div.innerHTML = `${rank}&nbsp;${icon}`;
+        container.appendChild(div);
     });
   }
 
@@ -232,6 +273,8 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
 
   // -------------------------------------------------------------
   // 
+  //
+  //
   // -------------------------------------------------------------
   function connectWebSocket() {
 
@@ -240,18 +283,24 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
       document.getElementById("action-messages").innerHTML = "";
     };
 
-
     socket.onmessage = function (event) {
       const data = JSON.parse(event.data);
-      
-      // Debugging: Log received data
-      console.log("🔵 WebSocket Message Received:", data);
+      console.log("🔵 WebSocket Message Received:", data); // Debug
+
 
       if (data) {
 
         // Alert user if error detected
         if (data.error !== undefined) {
           alert(data.error);
+        }
+
+        // Update buttons state
+        if (data.type === "update_game_state") {
+          let gameStatus = data.game_status;
+          let currentUsername = data.current_username;
+          let currentPhase = data.current_phase;
+          buttonsStateMachine(gameStatus, currentPhase, currentUsername, username, isPlayer);
         }
 
          // Update game status
@@ -301,23 +350,10 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
         // Handle players list
         if (data.players) {
           updatePlayerList(data.players);
-
-          const isPlayer = data.players.some(player => player.username === username);
-          const playerCount = data.players.length;
-          const maxPlayers = parseInt("{{ game.max_players }}");
+          let isPlayer = data.players.some(player => player.username === username);
+          let playerCount = data.players.length;
+          let maxPlayers = parseInt("{{ game.max_players }}");
   
-        }
-
-        // Enable or disable action button
-        if (data.current_username || data.current_username === "") {
-          let actionButtons = document.querySelectorAll(".action-button");
-          actionButtons.forEach(button => {
-              if (typeof username !== "" && username === data.current_username && data.game_status === "active" && data.current_phase !== "showdown") {
-                  button.disabled = false;  // Enable for current turn user
-              } else {
-                  button.disabled = true;   // Disable for others
-              }
-          });
         }
 
 
@@ -364,6 +400,7 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
   // -------------------------------------------------------------
   function sendJoin() {
     socket.send(JSON.stringify({ action: "join", player: username }));
+    isPlayer = "true";
   }
 
   // -------------------------------------------------------------
@@ -372,33 +409,134 @@ Current Pot : <span id="current-pot">{{ game.get_pot }}</span><br>
   function sendLeave() {
     document.getElementById("hole-cards").innerText = "[ No cards ]"
     socket.send(JSON.stringify({ action: "leave", player: username }));
+    isPlayer = "false";
   }
 
+  
+  // -------------------------------------------------------------
+  // 
+  // -------------------------------------------------------------
+
+  function enable_action_buttons(status) {
+    let actionButtons = document.querySelectorAll(".action-button");
+    actionButtons.forEach(button => {
+      if (status) {
+        button.disabled = false;  // Enable for current turn user
+        button.classList.remove("disabled:bg-gray-600", "disabled:text-gray-400");
+      } else {
+        button.disabled = true;  // Enable for current turn user
+        button.classList.add("disabled:bg-gray-600", "disabled:text-gray-400");
+      }
+    });
+  }
 
 
   // -------------------------------------------------------------
   // 
   // -------------------------------------------------------------
-  window.onload = function() {
-    // Ensure buttons are enabled correctly on page load
-    const actionButtons = document.querySelectorAll(".action-button");
-    if (currentTurnUsername === username) {
-        actionButtons.forEach(button => button.disabled = false);
+  function enable_join_button(status) {
+    let joinButton = document.getElementById("join-button");
+
+    if (status === true) {
+      joinButton.disabled = false;
+      joinButton.classList.remove("disabled:bg-gray-600", "disabled:text-gray-400");
     } else {
-        actionButtons.forEach(button => button.disabled = true);
+      joinButton.disabled = true;
+      joinButton.classList.add("disabled:bg-gray-600", "disabled:text-gray-400");
+    }
+    
+  }
+
+
+  // -------------------------------------------------------------
+  // 
+  // -------------------------------------------------------------
+  function enable_leave_button(status) {
+    let leaveButton = document.getElementById("leave-button");
+
+    if (status === true) {
+      leaveButton.disabled = false;
+      leaveButton.classList.remove("disabled:bg-gray-600", "disabled:text-gray-400");
+    } else {
+      leaveButton.disabled = true;
+      leaveButton.classList.add("disabled:bg-gray-600", "disabled:text-gray-400");
     }
 
-    if (gamePhase === "showdown") {
-        actionButtons.forEach(button => button.disabled = true);
+  }
+
+
+  // -------------------------------------------------------------
+  // Set the state of each buttons
+  // -------------------------------------------------------------
+  function buttonsStateMachine(
+    gameStatus,
+    gamePhase,
+    currentTurnUsername,
+    username,
+    isPlayer
+  ) {
+   
+    // 1) disable everything by default
+    enable_action_buttons(false);
+    enable_join_button(false);
+    enable_leave_button(false);
+
+   
+    // 2) if the game is finished => any seated player can leave
+    if (gameStatus === "finished") {
+      if (isPlayer === "true") {
+        enable_leave_button(true);
+      }
+      return;
     }
+
+    // 3) if we are in showdown => no one can act,
+    if (gamePhase === "showdown") {
+      return;
+    }
+
+    // 4) if the game is waiting => non-players can join; players can leave
+    if (gameStatus === "waiting") {
+      if (isPlayer === "false") {
+        enable_join_button(true);
+      }
+      if (isPlayer === "true") {
+        enable_leave_button(true);
+      }
+      return;
+    }
+
+    // 5) if the game is active => only the current-turn player can act or leave
+    if (gameStatus === "active") {
+      if (isPlayer === "true") {
+        if (currentTurnUsername === username) {
+          enable_action_buttons(true);
+          enable_leave_button(true);
+        }
+      }
+    }
+  }
+
+
+
+  // -------------------------------------------------------------
+  // Executed on page load
+  // -------------------------------------------------------------
+  window.onload = function() {
+
+    // Update buttons state
+    buttonsStateMachine(gameStatus, gamePhase, currentTurnUsername, username, isPlayer);
+   
     // Load initial community cards
     loadInitialCommunityCards();
+   
   };
 
 
-
-  // Initial WebSocket Connection
-  connectWebSocket();
+// -------------------------------------------------------------
+// Initial WebSocket Connection
+// -------------------------------------------------------------
+connectWebSocket();
 
 </script>
 

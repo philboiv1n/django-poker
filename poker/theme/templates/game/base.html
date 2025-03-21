@@ -1,7 +1,8 @@
 {% load static tailwind_tags %}
 <!DOCTYPE html>
 <html lang="en">
-  <head>
+  
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %} ♦︎ ♣︎ ♥︎ ♠︎ {% endblock %}</title>
@@ -9,84 +10,91 @@
     <link rel ="icon" href="{% static 'favicon.ico' %}" type="image/x-icon">
     {% block meta %}{% endblock %}
   </head>
-  <body class="bg-gray-900 text-white p-4">
+
+  <body class="bg-cyan-900 text-white p-6 text-base">
  
+    <!---------------------------------
+    Header & Menu
+    ---------------------------------->
     {% if user.is_authenticated %}
+    <header>
 
-      <header>
+      <div class="flex flex-wrap justify-between items-center p-4 bg-gray-800 rounded-lg">
+        
+        <div>
+          Hello {{user.username}}. You have <span id="total_user_chips">{{user.profile.chips}}</span> chips.
+        </div>
 
-        <div class="w-full flex justify-between items-center p-4 bg-gray-800 rounded-lg">
+        <nav class="hidden md:flex space-x-8">
+          {% if request.user.is_staff %}
+          <a href="/admin" class="hover:underline">Admin</a>
+          {% endif %}
+          <a href="/" class="hover:underline">Dashboard</a>
+          <a href="{% url 'profile' %}" class="hover:underline">Profile</a>
+          <a href="{% url 'stats' %}" class="hover:underline">Stats</a>
+          <a href="{% url 'logout_validation' %}" class="hover:underline">Logout</a>
+        </nav>
 
-          <!-- Hello -->
-          <div class="text-lg">Hello {{user.username}}. You have <span id="total_user_chips">{{user.profile.chips}}</span> chips.</div>
+        <div class="md:hidden">
+          <button id="menu-btn" class="block hamburger focus:outline-none">
+              <span class="hamburger-top block w-6 h-0.5 bg-white mb-1.5 transition-all duration-300"></span>
+              <span class="hamburger-middle block w-6 h-0.5 bg-white mb-1.5 transition-all duration-300"></span>
+              <span class="hamburger-bottom block w-6 h-0.5 bg-white transition-all duration-300"></span>
+          </button>
+        </div>
 
-          <!-- Nav -->
-          <nav class="hidden md:flex space-x-8">
-            <a href="/" class="hover:underline">Dashboard</a>
-            <a href="{% url 'profile' %}" class="hover:underline">Profile</a>
-            <a href="{% url 'stats' %}" class="hover:underline">Stats</a>
-            <a href="{% url 'logout_validation' %}" class="hover:underline">Logout</a>
+      </div>
+
+
+      <div id="mobile-menu" class="hidden md:hidden bg-gray-800 mt-2 mb-2 p-4 rounded-lg duration-300">
+        <nav class="flex flex-col space-y-4">
             {% if request.user.is_staff %}
-            <a href="/admin" class="hover:underline">Admin</a>
+            <a href="/admin">Admin</a>
             {% endif %}
-          </nav>
+            <a href="/">Dashboard</a>
+            <a href="{% url 'profile' %}">Profile</a>
+            <a href="{% url 'stats' %}">Stats</a>
+            <a href="{% url 'logout_validation' %}">Logout</a>
+        </nav>
+      </div>
 
-          <!-- Hamburger Menu Button -->
-          <div class="md:hidden">
-            <button id="menu-btn" class="block hamburger focus:outline-none">
-                <span class="hamburger-top block w-6 h-0.5 bg-white mb-1.5 transition-all duration-300"></span>
-                <span class="hamburger-middle block w-6 h-0.5 bg-white mb-1.5 transition-all duration-300"></span>
-                <span class="hamburger-bottom block w-6 h-0.5 bg-white transition-all duration-300"></span>
-            </button>
-          </div>
-
-        </div>
-
-        <!-- Mobile menu -->
-        <div id="mobile-menu" class="hidden md:hidden bg-gray-800 mt-2 mb-2 p-4 rounded-lg duration-300">
-          <nav class="flex flex-col space-y-4">
-              <a href="/">Dashboard</a>
-              <a href="{% url 'profile' %}">Profile</a>
-              <a href="{% url 'stats' %}">Stats</a>
-              <a href="{% url 'logout_validation' %}">Logout</a>
-              {% if request.user.is_staff %}
-              <a href="/admin">Admin</a>
-              {% endif %}
-          </nav>
-        </div>
-
-      </header>
-
+    </header>
     {% endif %}
 
-    <!-- Content Block -->
-    <main class="container p-4">
-      {% block content %}{% endblock %}
+
+    <!---------------------------------
+    Main content
+    ---------------------------------->
+    <main class="my-6">
+    {% block content %}{% endblock %}
     </main>
     
-    <!-- Footer -->
+
+    <!---------------------------------
+    Footer
+    ---------------------------------->
     <footer>
-      <div class="w-full flex justify-between items-center p-4 bg-gray-800 rounded-lg">
-
-        <!-- <div class="mb-4 md:mb-0"> -->
-          <p class="text-gray-500 text-sm">
-          A basic Texas hold 'em poker web app.
-          <br>&copy; Phil Boivin - Under construction - v.{{ VERSION }}
-          </p>
-        <!-- </div> -->
-
+      <div class="flex flex-wrap justify-between items-center py-8">
+        <div class="text-gray-400 text-sm">
+          v.{{ VERSION }} by Phil Boivin.
+          <div class="tracking-[0.3em]">♦︎♣︎♥︎♠︎</div> 
+        </div>
       </div>
     </footer>
 
+
+    <!---------------------------------
+    JavaScript
+    ---------------------------------->
     <script>
-    // Toggle mobile menu
-    const menuBtn = document.getElementById('menu-btn');
-    const mobileMenu = document.getElementById('mobile-menu');
-    
-    menuBtn.addEventListener('click', function() {
-        mobileMenu.classList.toggle('hidden');
-        menuBtn.classList.toggle('menu-open');
-    });
+      // Toggle mobile menu
+      const menuBtn = document.getElementById('menu-btn');
+      const mobileMenu = document.getElementById('mobile-menu');
+      menuBtn.addEventListener('click', function() {
+          mobileMenu.classList.toggle('hidden');
+          menuBtn.classList.toggle('menu-open');
+      });
     </script>
+
   </body>
 </html>

@@ -118,7 +118,7 @@ def table(request, game_id):
         {
             "game": game,
             "players": players,
-            "is_player": is_player,
+            "is_player": "true" if is_player else "false",
             "current_turn_username": current_turn_username,
         },
     )
