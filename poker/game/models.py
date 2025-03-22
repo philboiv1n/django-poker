@@ -255,20 +255,26 @@ class Player(models.Model):
     # Whether the player is all-in
     is_all_in = models.BooleanField(default=False)
 
+    # Player is small blind
+    is_small_blind = models.BooleanField(default=False)
+
     # Player is big blind
     is_big_blind = models.BooleanField(default=False)
 
+    # Player is dealing
+    is_dealer = models.BooleanField(default=False)
+
     # Whether the player has acted 
     has_acted_this_round = models.BooleanField(default=False)
-
-    # Tracks the last time the player performed an action (e.g., to detect inactivity).
-    last_active = models.DateTimeField(default=now)
 
     # Assigns a seat in the game
     position = models.PositiveIntegerField(null=True, blank=True)
 
     # Store hole cards (two private cards per player)
     hole_cards = models.JSONField(default=list)  # Stores ["4♥︎", "K♠︎"]
+
+    # Tracks the last time the player performed an action (e.g., to detect inactivity).
+    last_active = models.DateTimeField(default=now)
 
     def set_hole_cards(self, cards):
         """Save hole cards as JSON."""

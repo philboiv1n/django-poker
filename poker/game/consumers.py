@@ -1292,6 +1292,9 @@ class GameConsumer(AsyncWebsocketConsumer):
                     "username": await sync_to_async(
                         lambda: p.user.username, thread_sensitive=True
                     )(),
+                    "avatar_color": await sync_to_async(
+                        lambda: p.user.profile.avatar_color, thread_sensitive=True
+                    )(),
                     "position": p.position,
                     "game_chips": p.chips,
                     "current_bet": p.current_bet,
