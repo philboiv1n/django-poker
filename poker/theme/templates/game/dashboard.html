@@ -12,7 +12,7 @@
         <p class="text-sm">Players: <span class="font-semibold">{{ game.players.count }}/{{ game.max_players }}</span></p>
         <p class="text-sm">Buy-in: <span class="font-semibold">{{ game.buy_in }}</span></p>
         <p class="text-sm">Blinds: <span class="font-semibold">{{ game.small_blind }} / {{ game.big_blind }}</span></p>
-        <a href="{% url 'table' game.id %}" class="mt-4 block w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2 rounded-lg text-center">View Table</a>
+        <a href="{% url 'table' game.id %}" class="mt-4 block w-full bg-emerald-800 hover:bg-emerald-700 text-white py-2 rounded-lg text-center">View Table</a>
       </li>
       {% empty %}
         <li>Sorry, no available tables at the moment.</li>

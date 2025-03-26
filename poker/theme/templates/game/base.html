@@ -21,8 +21,16 @@
 
       <div class="flex flex-wrap justify-between items-center p-4 bg-gray-800 rounded-lg">
         
+       
+
         <div>
-          <span class="inline-block w-3 h-3 rounded-full border border-white" style="background-color: {{ user.profile.avatar_color }};"></span> {{user.username}} has <span id="total_user_chips">{{user.profile.chips}}</span> chips.
+          <span class="inline-block w-3 h-3 border border-white mr-1" style="background-color: {{ user.profile.avatar_color }};"></span> 
+          {{user.username}} has <span id="total_user_chips">
+            <script>
+              chips = {{ user.profile.chips}};
+              document.write(chips.toLocaleString('fr-CA'));  
+             </script>
+          </span> chips.
         </div>
 
         <nav class="hidden md:flex space-x-8">
@@ -31,7 +39,7 @@
           {% endif %}
           <a href="/" class="hover:underline">Dashboard</a>
           <a href="{% url 'profile' %}" class="hover:underline">Profile</a>
-          <a href="{% url 'stats' %}" class="hover:underline">Stats</a>
+          <!-- <a href="{% url 'stats' %}" class="hover:underline">Stats</a> -->
           <a href="{% url 'logout_validation' %}" class="hover:underline">Logout</a>
         </nav>
 
@@ -53,7 +61,7 @@
             {% endif %}
             <a href="/">Dashboard</a>
             <a href="{% url 'profile' %}">Profile</a>
-            <a href="{% url 'stats' %}">Stats</a>
+            <!-- <a href="{% url 'stats' %}">Stats</a> -->
             <a href="{% url 'logout_validation' %}">Logout</a>
         </nav>
       </div>

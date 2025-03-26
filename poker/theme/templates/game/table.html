@@ -13,65 +13,18 @@
   <div class="text-sm">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.</div>
   <div class="text-sm">Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}</div>
   <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span> (<span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span>)</div>
-  <div class="text-sm">
-    
-      <!-- Dealer -->
-      Dealer : <span id="dealer">
-        {% for player in players %} 
-          {% if player.position == game.dealer_position %}
-            {{ player.user.username }}   
-          {% endif %}
-        {% empty %}
-          
-        {% endfor %}
-      </span> 
-      <br>
-      
-      <!-- Turn -->
-      Next to play : <span id="current-turn">
-        {% for player in players %}
-          {% if player.position == game.current_turn %}
-            {{ player.user.username }}
-          {% endif %}
-        {% empty %}
-          
-        {% endfor %}
-      </span>
-      
-      
-  </div>
   
   <!-- Join / Leave Table Button  -->
     <button id="join-button" onclick="sendJoin()" 
       class="my-4 p-2 mr-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-center shadow-lg">Join Table</button>
     <button id="leave-button" onclick="sendLeave()" 
       class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-lg">Leave Table</button>
-
 </div>
 
 <!---------------------------------------------------------------------------
-  Players information
+  Players List
 ---------------------------------------------------------------------------->
-
-<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full my-4 p-4">
-  {% for player in players %}
-    <li data-position="{{ player.position }}"
-        class="flex flex-col items-center p-2 bg-gray-700 rounded-lg w-36 sm:w-1/2 lg:w-[18%] shadow-lg">
-      <span class="text-sm">
-        <span class="inline-block w-3 h-3 rounded-full border border-white" style="background-color: {{ player.user.profile.avatar_color }};"></span> 
-        {{ player.user.username }} [{{ player.position }}]</span>
-      <span class="text-sm">Table chips: {{ player.chips }}</span>
-      <span class="text-sm">Bet: {{ player.current_bet }}</span>
-      <span class="text-xs">Folded [{{ player.has_folded }}] Checked [{{ player.has_checked }}]</span>
-      <!-- <span class="text-xs text-green-400">
-        {% if player.position == game.dealer_position %}
-          Dealer
-        {% endif %}
-      </span> -->
-    </li>
-  {% endfor %}
-</ul>
-  
+<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full my-4 p-4"></ul>
 
 
 <!---------------------------------------------------------------------------
@@ -82,7 +35,12 @@
   <div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
   <h2 class="text-xl">Community cards</h2>
   <div>
-    Total Pot : <span id="current-pot">{{ game.get_pot }}</span>
+    Total Pot : <span id="current-pot">
+     <script>
+      pot = {{ game.get_pot}};
+      document.write(pot.toLocaleString('fr-CA'));  
+     </script>
+    </span>
   </div>
   <div class="flex flex-col my-6">
     <div class="flex gap-2" id="communityCardsContainer"></div>
@@ -153,128 +111,6 @@ Javascript
   let gameStatus = "{{ game.status }}";
   let isPlayer = "{{ is_player }}";
 
-  
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
-  function sendAction(action) {
-    // Ensure WebSocket is open before sending data
-    if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ action: action, player: username }));
-    } else {
-        console.warn("WebSocket is not open. Cannot send action.");
-    }
-  }
-
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
-  function validateBetInput(input) {
-        if (input.value < 0) {
-            input.value = 1;
-        } else if (input.value > 999999999) {
-            input.value = 999999999;
-        }
-    }
-
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
-  function placeBet() {
-        var betAmount = document.getElementById("bet-amount").value;
-        if (betAmount >= 1 && betAmount <= 999999999) {
-            sendBet(parseInt(betAmount));  // Call your betting function
-        } else {
-            alert("Invalid bet amount! Please enter a value between 1 and 999999.");
-        }
-  }
-  
-  function sendBet(amount) {
-    socket.send(JSON.stringify({ action: "bet", player: username, amount: amount }));
-  }
-
-
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
-  function updatePlayerList(players) {
-    const playerList = document.getElementById("players-list");
-    playerList.innerHTML = "";
-    players.forEach(player => {
-      const li = document.createElement("li");
-      li.setAttribute("data-position", player.position);
-      li.setAttribute("class", "flex flex-col items-center p-2 bg-gray-700 rounded-lg w-30");
-
-      li.innerHTML = `
-          <span class="text-sm">
-            <span class="inline-block w-3 h-3 rounded-full border border-white" style="background-color: ${player.avatar_color};"></span> 
-            ${player.username } [${ player.position }]
-          </span>
-          <span class="text-sm">Table chips: ${player.game_chips}</span>
-          <span class="text-sm">Bet: ${player.current_bet}</span>
-          <span class="text-xs">Folded: ${player.has_folded} | Checked: ${player.has_checked}</span>
-          <span class="text-xs text-green-400"></span>
-      `;
-
-      playerList.appendChild(li);
-    });
-  }
-
-
-
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
-  function displayCards(cards, containerId) {
-    const container = document.getElementById(containerId);
-    container.innerHTML = ""; // Clear previous cards
-
-    cards.forEach(card => {
-        let rank, suit, icon, color = "black";
-      
-        rank = card[0]; // A, K, Q, J, 9, etc.
-        suit = card[1]; // d, c, h, s
-        icon = "♠︎";
-
-        if (suit == "d") {
-          icon = "♦︎";
-          color = "red";
-        } else if (suit == "c") {
-          icon = "♣︎";
-        } else if (suit == "h") {
-          icon = "♥︎";
-          color = "red";
-        }
-
-        if (rank == "T") {
-          rank = "10";
-        }
-
-        const div = document.createElement("div");
-        div.className = `card ${color} shadow-xl`;
-        div.innerHTML = `${rank}&nbsp;${icon}`;
-        container.appendChild(div);
-    });
-  }
-
-  // -------------------------------------------------------------
-  // Function to extract cards from the hidden span & update UI
-  // -------------------------------------------------------------
-  function loadInitialCommunityCards() {
-      const communityCardsText = document.getElementById("community-cards").innerText.trim();
-
-      // Ensure we have valid data
-      if (communityCardsText.length > 0 && communityCardsText !== "[]") {
-          try {
-              // Convert raw Django output to a clean array format
-              let communityCardsArray = communityCardsText.replace(/[\[\]']/g, "").split(", ");
-              displayCards(communityCardsArray, "communityCardsContainer");
-          } catch (error) {
-              console.error("Error parsing community cards:", error);
-          }
-      }
-    }
-
 
   // -------------------------------------------------------------
   // 
@@ -320,7 +156,8 @@ Javascript
 
         // Update current pot
         if (data.pot !== undefined) {
-          document.getElementById("current-pot").innerText = data.pot;
+          num = data.pot.toLocaleString('fr-CA');
+          document.getElementById("current-pot").innerText = num;
         }
 
         // Update community cards
@@ -336,36 +173,30 @@ Javascript
 
         // Update total user chips
         if (data.total_user_chips >= 0) {
-          document.getElementById("total_user_chips").innerText = data.total_user_chips
+          num = data.total_user_chips.toLocaleString('fr-CA');
+          document.getElementById("total_user_chips").innerText = num;
         }
-
-
-        // Update dealer's position
-        if (data.dealer_position !== undefined) {
-          document.getElementById("dealer").innerText = 
-          data.players.find(p => p.position === data.dealer_position)?.username || "";
-        }
+        
 
         // Update current turn player
-        if (data.current_turn !== undefined) {
-          document.getElementById("current-turn").innerText =
-            data.players.find(p => p.position === data.current_turn)?.username || "";
-        }
+        // if (data.current_turn !== undefined) {
+        //   document.getElementById("current-turn").innerText =
+        //     data.players.find(p => p.position === data.current_turn)?.username || "";
+        // }
 
-        // Handle players list
+        // Update players list
         if (data.players) {
-          updatePlayerList(data.players);
+          renderPlayersList(data.players, "players-list");
           let isPlayer = data.players.some(player => player.username === username);
           let playerCount = data.players.length;
           let maxPlayers = parseInt("{{ game.max_players }}");
-  
         }
 
 
       }
       
     
-      // Handle action messages
+      // Display messages
       if (data.messages) {
           
           let messagesList = document.getElementById("action-messages");
@@ -398,24 +229,130 @@ Javascript
 
   }
 
-
-
   // -------------------------------------------------------------
-  // 
+  function sendAction(action) {
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ action: action, player: username }));
+    } else {
+        console.warn("WebSocket is not open.");
+    }
+  }
+
   // -------------------------------------------------------------
   function sendJoin() {
-    socket.send(JSON.stringify({ action: "join", player: username }));
-    isPlayer = "true";
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ action: "join", player: username }));
+      isPlayer = "true";
+    } else {
+        console.warn("WebSocket is not open.");
+    }
   }
 
   // -------------------------------------------------------------
-  // 
-  // -------------------------------------------------------------
   function sendLeave() {
-    document.getElementById("hole-cards").innerText = "[ No cards ]"
-    socket.send(JSON.stringify({ action: "leave", player: username }));
-    isPlayer = "false";
+    if (socket.readyState === WebSocket.OPEN) {
+      document.getElementById("hole-cards").innerText = ""
+      socket.send(JSON.stringify({ action: "leave", player: username }));
+      isPlayer = "false";
+    } else {
+        console.warn("WebSocket is not open.");
+    }
   }
+
+
+
+
+
+
+
+
+
+
+
+
+
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
+  function validateBetInput(input) {
+        if (input.value < 0) {
+            input.value = 1;
+        } else if (input.value > 999999999) {
+            input.value = 999999999;
+        }
+    }
+
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
+  function placeBet() {
+        var betAmount = document.getElementById("bet-amount").value;
+        if (betAmount >= 1 && betAmount <= 999999999) {
+            sendBet(parseInt(betAmount));  // Call your betting function
+        } else {
+            alert("Invalid bet amount! Please enter a value between 1 and 999999.");
+        }
+  }
+  
+  function sendBet(amount) {
+    socket.send(JSON.stringify({ action: "bet", player: username, amount: amount }));
+  }
+
+
+
+  // -------------------------------------------------------------
+  //
+  // -------------------------------------------------------------
+  function displayCards(cards, containerId) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = ""; // Clear previous cards
+
+    cards.forEach(card => {
+        let rank, suit, icon, color = "black";
+      
+        rank = card[0]; // A, K, Q, J, 9, etc.
+        suit = card[1]; // d, c, h, s
+        icon = "♠︎";
+
+        if (suit == "d") {
+          icon = "♦︎";
+          color = "red";
+        } else if (suit == "c") {
+          icon = "♣︎";
+        } else if (suit == "h") {
+          icon = "♥︎";
+          color = "red";
+        }
+
+        if (rank == "T") {
+          rank = "10";
+        }
+
+        const div = document.createElement("div");
+        div.className = `card ${color} shadow-xl`;
+        div.innerHTML = `${rank}${icon}`;
+        container.appendChild(div);
+    });
+  }
+
+  // -------------------------------------------------------------
+  // Function to extract cards from the hidden span & update UI
+  // -------------------------------------------------------------
+  function loadInitialCommunityCards() {
+      const communityCardsText = document.getElementById("community-cards").innerText.trim();
+
+      // Ensure we have valid data
+      if (communityCardsText.length > 0 && communityCardsText !== "[]") {
+          try {
+              // Convert raw Django output to a clean array format
+              let communityCardsArray = communityCardsText.replace(/[\[\]']/g, "").split(", ");
+              displayCards(communityCardsArray, "communityCardsContainer");
+          } catch (error) {
+              console.error("Error parsing community cards:", error);
+          }
+      }
+    }
+
 
   
   // -------------------------------------------------------------
@@ -523,6 +460,75 @@ Javascript
   }
 
 
+  // -------------------------------------------------------------
+  // Renders the list of players into a given container
+  // -------------------------------------------------------------
+  function renderPlayersList(players, containerId = "players-list") {
+    
+    const playerList = document.getElementById(containerId);
+    // In case the container doesn't exist or has changed
+    if (!playerList) return;
+
+    // We re-apply the flex + layout classes
+    playerList.setAttribute("class","flex flex-wrap justify-center gap-4 w-full my-4 p-4");
+
+    // Clear existing
+    playerList.innerHTML = "";
+
+    // For each player object
+    players.forEach(player => {
+      const li = document.createElement("li");
+      li.setAttribute("data-position", player.position);
+      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg w-36 sm:w-1/2 lg:w-[18%] shadow-lg");
+      
+      // Dealer marker
+      const dealerMarkup = player.is_dealer
+        ? `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-black text-black" style="background-color: white;">D</span>`
+        : "";
+
+      // Small blind
+      const smallBlindMarkup = player.is_small_blind
+        ? `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-black text-white" style="background-color: blue;">S</span>`
+        : "";
+
+      // Big blind
+      const bigBlindMarkup = player.is_big_blind
+        ? `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-black text-black" style="background-color: yellow;">B</span>`
+        : "";
+
+      // Next to play ?
+      if (player.is_next_to_play) {
+        li.classList.add("bg-emerald-800");
+        nextMarkup = `<span class="items-center justify-center text-white text-sm">Your turn</span>`;
+      } else {
+        li.classList.add("bg-gray-700");
+        nextMarkup = "";
+      }
+
+      // Build the list item’s innerHTML
+      li.innerHTML = `
+        <span class="text-base">
+          <span class="inline-block w-3 h-3 border border-white mr-1" style="background-color: ${player.avatar_color};"></span> 
+          ${player.username}
+        </span>
+        <span class="text-sm">Table chips: ${player.game_chips}</span>
+        <span class="text-sm">Bet: ${player.current_bet}</span>
+        <span class="text-sm font-bold my-2">
+          ${dealerMarkup}
+          ${smallBlindMarkup}
+          ${bigBlindMarkup}
+        </span>
+         ${nextMarkup}
+      `;
+
+      playerList.appendChild(li);
+    });
+  }
+
+
+
+
+
 
   // -------------------------------------------------------------
   // Executed on page load
@@ -535,6 +541,10 @@ Javascript
     // Load initial community cards
     loadInitialCommunityCards();
    
+    // Load player's list
+    let playersData = JSON.parse('{{ players_json|safe }}');
+    renderPlayersList(playersData, "players-list");
+
   };
 
 

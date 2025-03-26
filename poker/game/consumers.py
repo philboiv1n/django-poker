@@ -257,6 +257,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             game.current_phase = ""
         else:
             if game.dealer_position == player.position:
+                # @TODO Currently defaulting to first player, should it be
+                # next player instead ?
                 game.dealer_position = remaining_players[0].position
             if game.current_turn == player.position:
                 await self.next_player(game)
@@ -514,6 +516,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             player.total_bet = 0
             player.has_folded = False
             player.is_all_in = False
+            player.is_small_blind = False
             player.is_big_blind = False
             await sync_to_async(player.save)()
 
@@ -596,6 +599,65 @@ class GameConsumer(AsyncWebsocketConsumer):
         await sync_to_async(game.save)()
 
   
+
+    # -----------------------------------------------------------------------
+    async def rotate_dealer(self, game: Game) -> None:
+        """
+        Moves the dealer to the next active player.
+        """
+
+        print("* ROTATE DEALER")
+
+        # Get all players sorted by their 'position' field
+        players = await sync_to_async(
+            lambda: list(game.players.order_by("position")), thread_sensitive=True
+        )()
+
+        # Safety check
+        if len(players) < 2:
+            return 
+
+        # If we have never set a dealer before, default to the first seat
+        # @TODO - Update to select a random dealer to start.
+        if game.dealer_position is None:
+            game.dealer_position = players[0].position
+            await sync_to_async(game.save)()
+            first_dealer_username = await sync_to_async(
+                lambda: players[0].user.username,
+                thread_sensitive=True,
+            )()
+            await self.broadcast_messages(f"🔄 Dealer is set to: {first_dealer_username} (first hand).")
+            return
+
+        # Find the current dealer's position in the list
+        current_dealer_index = next(
+            (i for i, p in enumerate(players) if p.position == game.dealer_position), -1
+        )
+
+         # If we can't find them, default to seat 0
+        if current_dealer_index == -1:
+            new_dealer_index = 0
+        else:
+            # Move dealer to next seat in a circular fashion
+            new_dealer_index = (current_dealer_index + 1) % len(players)
+
+        new_dealer = players[new_dealer_index]
+
+        await sync_to_async(lambda: Player.objects.filter(game=game).update(is_dealer=False))()
+        new_dealer.is_dealer = True
+        await sync_to_async(new_dealer.save)()
+
+        game.dealer_position = new_dealer.position
+        await sync_to_async(game.save)()
+
+        new_dealer_username = await sync_to_async(
+            lambda: new_dealer.user.username, thread_sensitive=True
+        )()
+
+        # Broadcast
+        await self.broadcast_messages(f"🔄 New dealer : {new_dealer_username}.")
+
+
     # -----------------------------------------------------------------------
     async def assign_blinds(self, game: Game) -> None:
         """
@@ -654,6 +716,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         small_blind_player.chips -= small_blind
         small_blind_player.current_bet = small_blind
         small_blind_player.total_bet += small_blind
+        small_blind_player.is_small_blind = True
         await sync_to_async(small_blind_player.save)()
 
         # Deduct big blind
@@ -699,13 +762,12 @@ class GameConsumer(AsyncWebsocketConsumer):
             #
             # Need to test this
             # Should be into a function, also used by the post action flow
-            #
-            
             while game.current_phase != "showdown":
                 await self.advance_hand_phase(game)
             await self.start_hand(game)   
             return
         
+            # Old code :
             # await self.advance_hand_phase(game)
             # return
 
@@ -713,7 +775,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         current_index = next((i for i, p in enumerate(active_players) if p.position == game.current_turn),-1,)
 
         # Determine the next player who is not all-in
-        for _ in range(len(active_players)):  # Loop ensures we don't get stuck in an infinite loop
+        for p in range(len(active_players)):  # Loop ensures we don't get stuck in an infinite loop
             if current_index == -1:
                 game.current_turn = active_players[0].position  # Default to first active player
             else:
@@ -723,7 +785,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             # If the chosen player is not all-in, break loop
             if not active_players[current_index].is_all_in:
                 break
-        
+
         # Save
         await sync_to_async(game.save)()
 
@@ -760,6 +822,17 @@ class GameConsumer(AsyncWebsocketConsumer):
         return active_non_allin_players[0].position
     
    
+    #
+    #
+    #
+    #
+    #
+    #
+    #
+    # =======================================================================
+    # GAME PHASES HANDLING
+    # =======================================================================
+
     # -----------------------------------------------------------------------
     async def is_phase_over(self, game: Game) -> bool:
         """
@@ -852,64 +925,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         if game.current_phase == "showdown":
             await self.start_hand(game)
             return
+        
         # else move current player after the dealer
         else:
             game.current_turn = await self.get_first_player_after_dealer(game)
             await sync_to_async(game.save)()
-            await self.broadcast_game_state(game)
-
-
-    # -----------------------------------------------------------------------
-    async def rotate_dealer(self, game: Game) -> None:
-        """
-        Moves the dealer to the next active player.
-        """
-
-        print("* ROTATE DEALER")
-
-        # Get all players sorted by their 'position' field
-        players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
-        )()
-
-        # Safety check
-        if len(players) < 2:
-            return 
-
-        # If we have never set a dealer before, default to the first seat
-        if game.dealer_position is None:
-            game.dealer_position = players[0].position
-            await sync_to_async(game.save)()
-            first_dealer_username = await sync_to_async(
-                lambda: players[0].user.username,
-                thread_sensitive=True,
-            )()
-            await self.broadcast_messages(f"🔄 Dealer is set to: {first_dealer_username} (first hand).")
-            return
-
-        # Find the current dealer's position in the list
-        current_dealer_index = next(
-            (i for i, p in enumerate(players) if p.position == game.dealer_position), -1
-        )
-
-         # If we can't find them, default to seat 0
-        if current_dealer_index == -1:
-            new_dealer_index = 0
-        else:
-            # Move dealer to next seat in a circular fashion
-            new_dealer_index = (current_dealer_index + 1) % len(players)
-
-        new_dealer = players[new_dealer_index]
-        game.dealer_position = new_dealer.position
-        await sync_to_async(game.save)()
-
-        new_dealer_username = await sync_to_async(
-            lambda: new_dealer.user.username, thread_sensitive=True
-        )()
-
-        # Broadcast
-        await self.broadcast_messages(f"🔄 New dealer : {new_dealer_username}.")
-
+            await self.broadcast_game_state(game) 
 
    
     # -----------------------------------------------------------------------
@@ -1055,35 +1076,6 @@ class GameConsumer(AsyncWebsocketConsumer):
                     f"🏆 {username} wins {share} chips with {pretty_str} ({win_rank})"
                 )
 
-
-    # -----------------------------------------------------------------------
-    async def transfer_chips_to_profile(self, player: Player) -> None:
-        """
-        Transfers the remaining chips from the game to the player's overall profile chips.
-        """
-
-        # Fetch user profile
-        user = await sync_to_async(lambda: player.user, thread_sensitive=True)()
-        user_profile = await sync_to_async(
-            lambda: user.profile, thread_sensitive=True
-        )()
-
-        # Transfer chips
-        user_profile.chips += player.chips  # Add game chips to total chips
-
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
-        await self.broadcast_messages(
-            f"🎉 {username} wins the game and receives {player.chips} chips!"
-        )
-
-        player.chips = 0  # Reset game chips
-
-        # Save changes
-        await sync_to_async(user_profile.save)()
-        await sync_to_async(player.save)()
-
         
 
     #
@@ -1207,6 +1199,35 @@ class GameConsumer(AsyncWebsocketConsumer):
         """ Convert string-based cards -> Treys card ints -> pretty string """
         cards_ints = [Card.new(c) for c in str_cards]
         return Card.ints_to_pretty_str(cards_ints)
+    
+
+    # -----------------------------------------------------------------------
+    async def transfer_chips_to_profile(self, player: Player) -> None:
+        """
+        Transfers the remaining chips from the game to the player's overall profile chips.
+        """
+
+        # Fetch user profile
+        user = await sync_to_async(lambda: player.user, thread_sensitive=True)()
+        user_profile = await sync_to_async(
+            lambda: user.profile, thread_sensitive=True
+        )()
+
+        # Transfer chips
+        user_profile.chips += player.chips  # Add game chips to total chips
+
+        username = await sync_to_async(
+            lambda: player.user.username, thread_sensitive=True
+        )()
+        await self.broadcast_messages(
+            f"🎉 {username} wins the game and receives {player.chips} chips!"
+        )
+
+        player.chips = 0  # Reset game chips
+
+        # Save changes
+        await sync_to_async(user_profile.save)()
+        await sync_to_async(player.save)()
 
     #
     #
@@ -1262,10 +1283,18 @@ class GameConsumer(AsyncWebsocketConsumer):
             lambda: list(game.players.all()), thread_sensitive=True
         )()
 
+        
         # Find the current player in the list
+
+        # find how to return the first player and not None!
         current_player = next(
             (p for p in players if p.position == game.current_turn), None
         )
+
+        # current_player = next(
+        #     (p for p in players if p.position == game.current_turn), None
+        # )
+
         current_username = (
             await sync_to_async(
                 lambda: current_player.user.username, thread_sensitive=True
@@ -1302,8 +1331,11 @@ class GameConsumer(AsyncWebsocketConsumer):
                     "has_folded": p.has_folded,
                     "has_checked": p.has_checked,
                     "has_acted_this_round": p.has_acted_this_round,
+                    "is_small_blind": p.is_small_blind,
                     "is_big_blind": p.is_big_blind,
+                    "is_dealer": p.is_dealer,
                     "is_all_in": p.is_all_in,
+                    "is_next_to_play": p.position == current_player.position,
                 }
                 for p in players
             ],

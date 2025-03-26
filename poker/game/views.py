@@ -8,6 +8,7 @@ Defines the core view functions for the Django poker application:
 - Includes real-time-related and table join/leave logic.
 """
 
+import json
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
@@ -106,11 +107,35 @@ def table(request, game_id):
       - All players currently in the game.
       - Whether the current user is part of the game (is_player).
     """
+
     game = get_object_or_404(Game, id=game_id)
     players = game.players.all()
-    current_turn_player = players.filter(position=game.current_turn).first()
+    # current_turn_player = players.filter(position=game.current_turn).first()
+    current_turn_player = players.filter(position=game.current_turn).first() or players.first()
     current_turn_username = current_turn_player.user.username if current_turn_player else ""
     is_player = players.filter(user=request.user).exists()
+
+    # Convert the QuerySet to a list of dictionaries
+    # used for Json output
+    players_data = []
+
+    for p in players:
+
+        players_data.append({
+            "username": p.user.username,
+            "game_chips": p.chips,
+            "position": p.position,
+            "is_dealer": p.is_dealer,
+            "is_small_blind": p.is_small_blind,
+            "is_big_blind": p.is_big_blind,
+            "avatar_color": p.user.profile.avatar_color,
+            "current_bet": p.current_bet,
+            "is_next_to_play": p.position == current_turn_player.position,
+            # etc.
+        })
+
+    # JSON-encode the Python list
+    players_json = json.dumps(players_data)
 
     return render(
         request,
@@ -118,6 +143,7 @@ def table(request, game_id):
         {
             "game": game,
             "players": players,
+            "players_json": players_json,
             "is_player": "true" if is_player else "false",
             "current_turn_username": current_turn_username,
         },
