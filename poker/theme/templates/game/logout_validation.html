@@ -1,6 +1,9 @@
 {% extends "game/base.html" %}
 {% block title %}Logout -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
+{% comment %}
+Logout validation screen.
+{% endcomment %}
 
   <h1 class="text-xl md:text-2xl my-4">Logout?</h1>
     <form method="post" action="{% url 'logout' %}" style="display:inline;">

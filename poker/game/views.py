@@ -14,7 +14,7 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
-from django.conf import settings
+# from django.conf import settings
 
 from .forms import ProfileForm
 from .models import Game
@@ -24,7 +24,12 @@ from .models import Game
 def logout_validation(request):
     """
     Displays a logout confirmation or validation page.
-    Users might be prompted here to confirm before fully logging out.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: Renders the logout confirmation template.
     """
     return render(request, "game/logout_validation.html")
 
@@ -33,9 +38,16 @@ def logout_validation(request):
 def dashboard(request):
     """
     Renders the user's main landing page after login.
+
     Displays:
       - List of available 'waiting' games (those not yet started).
       - The user's nickname (drawn from Profile).
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: Rendered dashboard template with available games.
     """
     available_games = Game.objects.all
     return render(
@@ -48,9 +60,16 @@ def dashboard(request):
 @login_required
 def profile(request):
     """
-    Allows the user to view and edit their profile via a ProfileForm.
-    - On POST: Saves form changes (nickname, avatar color, etc.).
-    - On GET: Renders the form with current profile info.
+    Allows the user to view and edit their profile.
+
+    Handles both profile updates and password changes. Uses POST to process updates,
+    and GET to display the current information.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: Rendered profile template with forms.
     """
 
     profile_form = ProfileForm(instance=request.user.profile)
@@ -91,8 +110,16 @@ def profile(request):
 @login_required
 def stats(request):
     """
-    Displays detailed statistics for the current user (e.g., games played, wins, etc.).
-    The data is gathered from request.user.profile and displayed read-only.
+    Displays detailed statistics for the current user.
+
+    Stats include number of games played, wins, losses, and other
+    performance metrics from the user's profile.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+
+    Returns:
+        HttpResponse: Rendered stats page.
     """
     profile = request.user.profile
     return render(request, "game/stats.html", {"profile": profile})
@@ -103,24 +130,29 @@ def stats(request):
 def table(request, game_id):
     """
     Renders the lobby or active game view for a given game.
+
     Shows:
       - All players currently in the game.
       - Whether the current user is part of the game (is_player).
+      - JSON-encoded player data for use in frontend scripts.
+
+    Args:
+        request (HttpRequest): The incoming HTTP request.
+        game_id (int): The ID of the game to load.
+
+    Returns:
+        HttpResponse: Rendered table view with game and player info.
     """
 
     game = get_object_or_404(Game, id=game_id)
     players = game.players.all()
-    # current_turn_player = players.filter(position=game.current_turn).first()
     current_turn_player = players.filter(position=game.current_turn).first() or players.first()
     current_turn_username = current_turn_player.user.username if current_turn_player else ""
     is_player = players.filter(user=request.user).exists()
 
-    # Convert the QuerySet to a list of dictionaries
-    # used for Json output
     players_data = []
 
     for p in players:
-
         players_data.append({
             "username": p.user.username,
             "game_chips": p.chips,
@@ -131,10 +163,8 @@ def table(request, game_id):
             "avatar_color": p.user.profile.avatar_color,
             "current_bet": p.current_bet,
             "is_next_to_play": p.position == current_turn_player.position,
-            # etc.
         })
 
-    # JSON-encode the Python list
     players_json = json.dumps(players_data)
 
     return render(

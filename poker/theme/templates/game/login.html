@@ -1,6 +1,9 @@
 {% extends "game/base.html" %}
 {% block title %}Login -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
+{% comment %}
+Login screen with a simple username / password form.
+{% endcomment %}
 
 <div class="flex justify-center items-center h-screen">
     <form method="POST" action="{% url 'login' %}" class="bg-gray-800 p-6 rounded-lg shadow-lg w-96">

@@ -1,11 +1,18 @@
 {% extends "game/base.html" %} 
 {% block title %}{{ game.name }} -  ♦︎ ♣︎ ♥︎ ♠︎{% endblock %}
 {% block content %}
-
+{% comment %}
+Main game interface for active poker tables.
+Includes:
+- Game metadata and status
+- Community cards and player lists
+- Buttons for poker actions (fold, bet, etc.)
+- Real-time updates using WebSockets
+{% endcomment %}
 
 <div class="bg-gray-800 rounded-lg w-full py-2 px-4 pb-8 text-center">
 <!---------------------------------------------------------------------------
-  Game information
+Game information
 ---------------------------------------------------------------------------->
 
 <div class="md:w-3/5 lg:w-1/2 p-4 mx-auto">
@@ -16,19 +23,19 @@
   
   <!-- Join / Leave Table Button  -->
     <button id="join-button" onclick="sendJoin()" 
-      class="my-4 p-2 mr-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-center shadow-lg">Join Table</button>
+      class="my-4 p-2 mr-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-center shadow-xl">Join Table</button>
     <button id="leave-button" onclick="sendLeave()" 
-      class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-lg">Leave Table</button>
+      class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-xl">Leave Table</button>
 </div>
 
 <!---------------------------------------------------------------------------
-  Players List
+Players List
 ---------------------------------------------------------------------------->
 <ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full my-4 p-4"></ul>
 
 
 <!---------------------------------------------------------------------------
-  Community cards
+Community cards
 ---------------------------------------------------------------------------->
 <span id="community-cards" style="display: none;">{{ game.community_cards }}</span>
 
@@ -49,7 +56,7 @@
 </div>
 
 
- <!---------------------------------------------------------------------------
+  <!---------------------------------------------------------------------------
   Player cards and actions
   ---------------------------------------------------------------------------->
   <div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
@@ -58,20 +65,20 @@
     <div class="flex gap-2 pt-2 pb-6" id="hole-cards"></div>
 
   <div class="flex gap-4">
-      <button onclick="sendAction('fold')" class="bg-red-500 px-4 py-2 rounded action-button">Fold</button>
-      <button onclick="sendAction('check')" class="bg-yellow-500 px-4 py-2 rounded action-button">Check</button>
-      <button onclick="sendAction('call')" class="bg-green-500 px-4 py-2 rounded action-button">Call</button>
-      <button class="bg-blue-500 px-4 py-2 rounded action-button">All-in</button>
+      <button onclick="sendAction('fold')" class="bg-red-500 px-4 py-2 rounded shadow-xl action-button">Fold</button>
+      <button onclick="sendAction('check')" class="bg-yellow-500 px-4 py-2 rounded shadow-xl action-button">Check</button>
+      <button onclick="sendAction('call')" class="bg-green-500 px-4 py-2 rounded shadow-xl action-button">Call</button>
+      <button class="bg-blue-500 px-4 py-2 rounded shadow-xl action-button">All-in</button>
   </div>
   <div class="flex gap-4 mt-4">
       <input type="number" id="bet-amount" placeholder="Bet Amount" min="1" max="999999999" value="{{ game.big_blind }}" 
-        oninput="validateBetInput(this)" class="bg-gray-600 text-white p-2 rounded">
-      <button onclick="placeBet()" class="bg-purple-500 px-4 py-2 rounded action-button">Bet</button>
+        oninput="validateBetInput(this)" class="bg-gray-600 text-white p-2 rounded shadow-xl">
+      <button onclick="placeBet()" class="bg-purple-500 px-4 py-2 rounded shadow-xl action-button">Bet</button>
   </div>
 </div>
 
 <!---------------------------------------------------------------------------
-  Messages
+Messages
 ---------------------------------------------------------------------------->
 
   <div class="text-left md:w-3/5 lg:w-1/2 p-4 mx-auto">
@@ -112,11 +119,10 @@ Javascript
   let isPlayer = "{{ is_player }}";
 
 
-  // -------------------------------------------------------------
-  // 
-  //
-  //
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Establishes WebSocket connection to the backend.
+  * Handles real-time updates, reconnects, and message parsing.
+  * ----------------------------------------------------------------------*/
   function connectWebSocket() {
 
     socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
@@ -229,7 +235,10 @@ Javascript
 
   }
 
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Sends a poker action (fold, call, etc.) to the backend.
+  * @param {string} action - Poker action keyword.
+  * ----------------------------------------------------------------------*/
   function sendAction(action) {
     if (socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ action: action, player: username }));
@@ -238,7 +247,10 @@ Javascript
     }
   }
 
-  // -------------------------------------------------------------
+
+  /* -----------------------------------------------------------------------
+  * Sends a join request for the current user via WebSocket.
+  * ----------------------------------------------------------------------*/
   function sendJoin() {
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ action: "join", player: username }));
@@ -248,7 +260,10 @@ Javascript
     }
   }
 
-  // -------------------------------------------------------------
+
+  /* -----------------------------------------------------------------------
+  * Sends a leave request for the current user via WebSocket.
+  * ----------------------------------------------------------------------*/
   function sendLeave() {
     if (socket.readyState === WebSocket.OPEN) {
       document.getElementById("hole-cards").innerText = ""
@@ -266,14 +281,10 @@ Javascript
 
 
 
-
-
-
-
-
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Ensures the bet amount is between 1 and 999999999.
+  * @param {HTMLInputElement} input - Bet input element.
+  * ----------------------------------------------------------------------*/
   function validateBetInput(input) {
         if (input.value < 0) {
             input.value = 1;
@@ -282,9 +293,9 @@ Javascript
         }
     }
 
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Reads input value and sends a valid bet to the backend.
+  * ----------------------------------------------------------------------*/
   function placeBet() {
         var betAmount = document.getElementById("bet-amount").value;
         if (betAmount >= 1 && betAmount <= 999999999) {
@@ -294,15 +305,21 @@ Javascript
         }
   }
   
+  /* -----------------------------------------------------------------------
+  * Sends a bet action with the specified amount.
+  * @param {number} amount - Bet amount.
+  * ----------------------------------------------------------------------*/
   function sendBet(amount) {
     socket.send(JSON.stringify({ action: "bet", player: username, amount: amount }));
   }
 
 
 
-  // -------------------------------------------------------------
-  //
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Renders a list of cards into a container.
+  * @param {Array<string>} cards - List of card strings (e.g., ["As", "Kd"]).
+  * @param {string} containerId - DOM container ID.
+  * ----------------------------------------------------------------------*/
   function displayCards(cards, containerId) {
     const container = document.getElementById(containerId);
     container.innerHTML = ""; // Clear previous cards
@@ -335,9 +352,10 @@ Javascript
     });
   }
 
-  // -------------------------------------------------------------
-  // Function to extract cards from the hidden span & update UI
-  // -------------------------------------------------------------
+
+  /* -----------------------------------------------------------------------
+  * Parses hidden card data from DOM and renders it visually.
+  * ----------------------------------------------------------------------*/
   function loadInitialCommunityCards() {
       const communityCardsText = document.getElementById("community-cards").innerText.trim();
 
@@ -355,10 +373,10 @@ Javascript
 
 
   
-  // -------------------------------------------------------------
-  // 
-  // -------------------------------------------------------------
-
+  /* -----------------------------------------------------------------------
+  * Enables/disables action buttons based on game state.
+  * @param {boolean} status - True to enable, false to disable.
+  * ----------------------------------------------------------------------*/
   function enable_action_buttons(status) {
     let actionButtons = document.querySelectorAll(".action-button");
     actionButtons.forEach(button => {
@@ -366,16 +384,17 @@ Javascript
         button.disabled = false;  // Enable for current turn user
         button.classList.remove("disabled:bg-gray-600", "disabled:text-gray-400");
       } else {
-        button.disabled = true;  // Enable for current turn user
+        button.disabled = true;  // Disable for current turn user
         button.classList.add("disabled:bg-gray-600", "disabled:text-gray-400");
       }
     });
   }
 
 
-  // -------------------------------------------------------------
-  // 
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Enables/disables action buttons based on game state.
+  * @param {boolean} status - True to enable, false to disable.
+  * ----------------------------------------------------------------------*/
   function enable_join_button(status) {
     let joinButton = document.getElementById("join-button");
 
@@ -390,9 +409,10 @@ Javascript
   }
 
 
-  // -------------------------------------------------------------
-  // 
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Enables/disables action buttons based on game state.
+  * @param {boolean} status - True to enable, false to disable.
+  * ----------------------------------------------------------------------*/
   function enable_leave_button(status) {
     let leaveButton = document.getElementById("leave-button");
 
@@ -407,9 +427,14 @@ Javascript
   }
 
 
-  // -------------------------------------------------------------
-  // Set the state of each buttons
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Central function that manages button visibility and states.
+  * @param {string} gameStatus - "waiting", "active", "finished"
+  * @param {string} gamePhase - Current game phase
+  * @param {string} currentTurnUsername - Who is currently acting
+  * @param {string} username - The current user's name
+  * @param {string} isPlayer - "true" if user is seated at table
+  * ----------------------------------------------------------------------*/
   function buttonsStateMachine(
     gameStatus,
     gamePhase,
@@ -460,9 +485,11 @@ Javascript
   }
 
 
-  // -------------------------------------------------------------
-  // Renders the list of players into a given container
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Displays all players and their statuses (dealer, SB, BB, next to act).
+  * @param {Array} players - List of player objects from backend
+  * @param {string} containerId - ID of the HTML element where to render players
+  * ----------------------------------------------------------------------*/
   function renderPlayersList(players, containerId = "players-list") {
     
     const playerList = document.getElementById(containerId);
@@ -530,9 +557,9 @@ Javascript
 
 
 
-  // -------------------------------------------------------------
-  // Executed on page load
-  // -------------------------------------------------------------
+  /* -----------------------------------------------------------------------
+  * Initializes UI state and renders players/community cards on page load.
+  * ----------------------------------------------------------------------*/
   window.onload = function() {
 
     // Update buttons state
@@ -548,9 +575,9 @@ Javascript
   };
 
 
-// -------------------------------------------------------------
-// Initial WebSocket Connection
-// -------------------------------------------------------------
+/* -----------------------------------------------------------------------
+* Initial WebSocket Connection
+* ----------------------------------------------------------------------*/
 connectWebSocket();
 
 </script>

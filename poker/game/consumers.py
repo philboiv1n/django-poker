@@ -28,9 +28,15 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def connect(self) -> None:
         """
-        Handles WebSocket connection.
-        - Joins the WebSocket room.
-        - Sends past messages from Redis.
+        Handles a new WebSocket connection.
+ 
+        - Retrieves game and user information from the connection scope.
+        - Adds the connection to both a public game room and a private user group.
+        - Sends the player's private game state (e.g., hole cards).
+        - Retrieves and sends the most recent messages stored in Redis.
+ 
+        Returns:
+            None
         """
 
         print("* CONNECT")
@@ -65,7 +71,17 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def disconnect(self, close_code) -> None:
-        """Disconnects the user from the WebSocket room."""
+        """
+        Handles the WebSocket disconnection.
+ 
+        Removes the user's connection from both the public game group and their private user group.
+ 
+        Args:
+            close_code: The WebSocket close code.
+ 
+        Returns:
+            None
+        """
 
         print("* DISCONNECT")
 
@@ -91,6 +107,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def receive(self, text_data: str) -> None:
         """
         Handles messages received from WebSocket clients.
+
+        Parses the incoming JSON message to determine the action type (join, leave, fold, check, call, bet).
+        Handles initial player joining before trying to fetch the player.
+        Validates player existence before processing further actions.
+        Dispatches the action to the appropriate handler function based on the action type.
+ 
+        Args:
+            text_data (str): JSON-formatted message sent from the WebSocket client.
+ 
+        Returns:
+            None
         """
 
         print("* RECEIVE")
@@ -136,6 +163,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         except Game.DoesNotExist:
             print(f" Game {self.game_id} not found. Ignoring action: {action}")
+
         # except Exception as e:
         #     print(f"Unexpected error in receive: {e}")
 
@@ -159,10 +187,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     async def handle_join(self, game:Game, player_username: str) -> None:
         """
         Handles a player joining the game.
-
+ 
+        This function checks if the player is already seated or has enough chips,
+        assigns them a position, deducts their buy-in, and creates a Player instance.
+        If the table is full after this join, it starts the game.
+ 
         Args:
             game (Game): The game instance.
-            player_username (str): The username of the player joining.
+            player_username (str): The username of the joining player.
+ 
+        Returns:
+            None
         """
         user = await sync_to_async(User.objects.get)(username=player_username)
         user_profile = await sync_to_async(lambda: user.profile)()
@@ -227,7 +262,18 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def handle_leave(self, game:Game, player_username: str) -> None:
         """
-        Handles player leaving the table via WebSocket.
+        Handles a player leaving the game.
+ 
+        If the game hasn't started, refunds their buy-in. Updates game state accordingly.
+        If this player was the dealer or currently active, reassigns those roles.
+        Broadcasts updated game state and removes the player.
+ 
+        Args:
+            game (Game): The game instance.
+            player_username (str): The username of the player leaving the table.
+ 
+        Returns:
+            None
         """
 
         # Get the player
@@ -276,7 +322,19 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def handle_fold(self, game: Game, player: Player) -> None:
-        """Handles player folding their hand."""
+        """
+        Handles the fold action from a player.
+ 
+        Marks the player as folded and updates their state. Broadcasts a message to all
+        players and triggers the post-action flow to determine the next step in the hand.
+ 
+        Args:
+            game (Game): The current game instance.
+            player (Player): The player folding their hand.
+ 
+        Returns:
+            None
+        """
 
         # Safety Check
         if player.is_all_in or player.has_folded:
@@ -298,7 +356,19 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def handle_check(self, game: Game, player: Player) -> None:
-        """Handles a player checking (if no bets exist)."""
+        """
+        Handles the check action from a player.
+ 
+        Validates if checking is allowed (no outstanding bets). Updates player status
+        and broadcasts the check to all players. Triggers the post-action flow.
+ 
+        Args:
+            game (Game): The current game instance.
+            player (Player): The player choosing to check.
+ 
+        Returns:
+            None
+        """
 
         # Safety Check
         if player.is_all_in or player.has_folded:
@@ -334,8 +404,20 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def handle_call(self, game: Game, player: Player) -> None:
-        """Handles a player calling the highest bet."""
-
+        """
+        Handles the call action from a player.
+ 
+        Validates if calling is possible, calculates the amount needed to match the
+        current bet, and updates the player's chip and bet status. Handles all-in logic
+        and triggers post-action flow.
+ 
+        Args:
+            game (Game): The current game instance.
+            player (Player): The player calling a bet.
+ 
+        Returns:
+            None
+        """
         # Safety Check
         if player.is_all_in or player.has_folded:
             await self.send(text_data=json.dumps({"error": "You cannot call."}))
@@ -383,8 +465,23 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def handle_bet(self, game: Game, player: Player, amount: int) -> None:
-        """Handles a player making a bet."""
+        """
+        Handles a player placing a bet.
+ 
+        This method validates the bet amount, updates the player's chip count and current bet,
+        determines if the player is going all-in, and broadcasts the action to all players.
+        It then continues the hand progression via post-action flow.
 
+        Args:
+            game (Game): The game instance the player is betting in.
+            player (Player): The player placing the bet.
+            amount (int): The number of chips the player wants to bet.
+ 
+        Returns:
+            None
+        """
+
+        
         # Safety Check
         if player.is_all_in or player.has_folded:
             await self.send(text_data=json.dumps({"error": "You cannot bet."}))
@@ -442,8 +539,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def post_action_flow(self, game: Game) -> None:
         """
-        Called after an action (fold, check, call, bet).
-        Decides if the betting round is over or if we go to the next player.
+        Handles game progression after each player's action.
+
+        Determines the next steps based on current player states. Ends the hand if only
+        one player remains. If players are all-in, runs out the board. Otherwise, decides
+        whether to end the current phase or move to the next player.
+
+        Args:
+            game (Game): The current game instance.
+
+        Returns:
+            None
         """
 
         print("* POST ACTION FLOW")
@@ -500,8 +606,18 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def start_hand(self, game: Game) -> None:
         """
-        Starts the hand
-        Initializes and shuffles the deck, assigns the dealer, blinds, and starts preflop.
+        Starts a new hand for the game.
+ 
+        This method resets all players statuses, removes players without chips,
+        reinitializes the hand (deck, dealer, blinds), and deals new hole cards.
+        If only one player remains, transfers chips and ends the game.
+        Finally, updates the game state and broadcasts the new hand.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
         """
 
         print("* START HAND")
@@ -589,8 +705,22 @@ class GameConsumer(AsyncWebsocketConsumer):
             self.broadcast_game_state(game),
         )
 
+
     # -----------------------------------------------------------------------
     async def reset_hand(self, game: Game) -> None:
+        """
+        Resets the hand state before a new hand begins.
+    
+        Clears the current turn, side pots, deck, community cards, and sets the current phase to preflop.
+        Saves the updated game state.
+    
+        Args:
+            game (Game): The current game instance.
+    
+        Returns:
+            None
+        """
+
         game.current_turn = None
         game.side_pots = []
         game.deck = []
@@ -598,12 +728,20 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.current_phase = "preflop"
         await sync_to_async(game.save)()
 
-  
 
     # -----------------------------------------------------------------------
     async def rotate_dealer(self, game: Game) -> None:
         """
-        Moves the dealer to the next active player.
+        Assigns the dealer position to the next player in order.
+ 
+        If no dealer is set, assigns it to the first player. If a dealer is already set,
+        rotates to the next player in circular order. Marks the new dealer and broadcasts the update.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
         """
 
         print("* ROTATE DEALER")
@@ -661,8 +799,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def assign_blinds(self, game: Game) -> None:
         """
-        Assigns small and big blinds at the start of each round.
-        If a player cannot afford the blind, they are removed from the table.
+        Assigns small and big blinds to players.
+ 
+        For heads-up, the dealer is the small blind. For 3+ players, assigns blinds clockwise.
+        Deducts the blinds from each player's chips and updates their states. 
+        Also sets the player who acts first preflop and broadcasts the blind information.
+ 
+        Args:
+            game (Game): The game instance in progress.
+ 
+        Returns:
+            None
         """
 
         # Fetch the sorted player list
@@ -739,9 +886,19 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def next_player(self, game: Game) -> None:
         """
-        Moves the turn to the next active player who has not folded and is not all-in.
-        If all active players are all-in, the round advances automatically.
+        Advances the turn to the next active player who has not folded and is not all-in.
+
+        If all active players are all-in, the function skips to the showdown by auto-advancing
+        through remaining phases and starting a new hand. Otherwise, it rotates the turn to 
+        the next eligible player in table order.
+
+        Args:
+            game (Game): The current game instance.
+
+        Returns:
+            None
         """
+
         print("* NEXT PLAYER")
 
         active_players = await sync_to_async(
@@ -760,7 +917,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             print("* ALL PLAYERS ALL-IN -> ADVANCING ROUND")
 
             #
-            # Need to test this
+            # @TODO - Need to test this
             # Should be into a function, also used by the post action flow
             while game.current_phase != "showdown":
                 await self.advance_hand_phase(game)
@@ -796,7 +953,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def get_first_player_after_dealer(self, game: Game) -> Player:
         """
-        Returns the first active player (not folded and not all-in) after the dealer.
+        Returns the position of the first eligible player to act after the dealer.
+ 
+        The eligible player must not have folded and must not be all-in.
+        The search wraps around if no player is found after the dealer's position.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            int: The position of the first eligible player after the dealer,
+                 or None if no such player exists.
         """
 
         # Get list of players who haven't folded AND aren't all-in, sorted by position
@@ -836,14 +1003,19 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def is_phase_over(self, game: Game) -> bool:
         """
-        Determines if the phase should end.
-
-        The phase ends when:
-        - Only one player remains (they win by default).
+        Determines if the current betting phase should end.
+ 
+        The phase ends under the following conditions:
         - All non-folded players have called the highest bet or gone all-in.
-        - If no bets were made, all players must check before the round ends.
-        - In heads-up preflop, ensure the big blind has had a chance to act 
-        if the small blind just called the forced bet.
+        - All active players have checked if no bets were placed.
+        - In preflop phase, ensures the big blind has acted if the small blind just called.
+        - The phase does not end if fewer than two players remain.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            bool: True if the phase should end, False otherwise.
         """
 
         active_players = await sync_to_async(
@@ -889,7 +1061,20 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def end_phase(self, game: Game, winner=None) -> None:
-        """Ends the current phase."""
+        """
+        Ends the current betting phase and prepares for the next phase or starts a new hand.
+ 
+        If a winner is specified (only one player left), awards the pot to that player
+        and begins a new hand. Otherwise, advances to the next phase or starts a new
+        hand if the showdown is reached. Resets player statuses accordingly.
+ 
+        Args:
+            game (Game): The current game instance.
+            winner (Player, optional): The player who wins by default due to all others folding.
+ 
+        Returns:
+            None
+        """
 
         print("* END PHASE")
 
@@ -936,8 +1121,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def advance_hand_phase(self, game: Game) -> None:
         """
-        Moves the game to the next phase (Preflop -> Flop -> Turn -> River -> Showdown).
-        Resets necessary game variables and ensures proper transitions.
+        Advances the game to the next phase in the hand.
+        
+        This function updates the current game phase in the following order:
+        Preflop → Flop → Turn → River → Showdown. At each stage, the appropriate
+        community cards are dealt and the game state is updated accordingly.
+        
+        Args:
+            game (Game): The current game instance.
+        
+        Returns:
+            None
         """
 
         print("* ADVANCE HAND PHASE")
@@ -959,10 +1153,22 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def move_to_flop(self, game:Game) -> None:
+        """
+        Deals the Flop: 3 community cards and burns 1 card.
+ 
+        Updates the community cards in the game instance, removes the dealt cards
+        from the deck, saves the game state, and broadcasts the updated community
+        cards to all players.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
+        """
 
         print("* FLOP")
 
-        """Deals 3 community cards for the Flop and burns 1 card."""
         await self.burn_card(game)  # Burn 1 card
         game.community_cards.extend(game.deck[:3])  # Deal 3 cards
         game.deck = game.deck[3:]  # Remove dealt cards from deck
@@ -978,9 +1184,22 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def move_to_turn(self, game: Game) -> None:
 
+        """
+        Deals the Turn: 1 community card and burns 1 card.
+ 
+        Appends the dealt card to the community cards list, removes the card from
+        the deck, saves the game state, and broadcasts the updated community cards
+        to all players.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
+        """
+                
         print("* TURN")
 
-        """Deals 1 community card for the Turn and burns 1 card."""
         await self.burn_card(game)  # Burn 1 card
         game.community_cards.append(game.deck.pop(0))  # Deal 1 card
         await sync_to_async(game.save)()
@@ -995,9 +1214,22 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def move_to_river(self, game: Game) -> None:
 
+        """
+        Deals the River: 1 community card and burns 1 card.
+ 
+        Appends the dealt card to the community cards list, removes the card from
+        the deck, saves the game state, and broadcasts the updated community cards
+        to all players.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
+        """
+
         print("* RIVER")
 
-        """Deals 1 community card for the River and burns 1 card."""
         await self.burn_card(game)  # Burn 1 card
         game.community_cards.append(game.deck.pop(0))  # Deal 1 card
         await sync_to_async(game.save)()
@@ -1012,7 +1244,20 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
    
     async def handle_showdown(self, game: Game) -> None:
-        """Determines winners and distributes the pot."""
+        """
+        Determines winners and distributes the pot among eligible players.
+ 
+        Handles the showdown by evaluating each remaining player's best 5-card hand,
+        constructing side pots based on total bets, and awarding chips to the winners
+        of each side pot. Uses Treys hand evaluator for scoring. Players with equal
+        best hands split the pot equally.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
+        """
 
         print("* SHOWDOWN")
 
@@ -1092,14 +1337,35 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def burn_card(self, game: Game) -> None:
-        """Burns (removes) the top card from the deck."""
+        """
+        Burns (removes) the top card from the deck.
+    
+        This is used in Texas Hold'em to discard a card before dealing
+        community cards (Flop, Turn, River) to prevent cheating and ensure fairness.
+    
+        Args:
+            game (Game): The current game instance.
+    
+        Returns:
+            None
+        """
         if game.deck:
             game.deck.pop(0)
 
     # -----------------------------------------------------------------------
     async def deal(self, game: Game) -> None:
         """
-        Deals two hole cards to each player.
+        Deals two hole cards to each player in proper order.
+ 
+        Distributes one card at a time to each player, twice around the table,
+        starting from the left of the dealer. Cards are stored in the database and
+        broadcasted privately to each player.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
         """
 
         # Init
@@ -1163,12 +1429,19 @@ class GameConsumer(AsyncWebsocketConsumer):
     def find_best_five_cards(self, seven_card_strings: List[str]) -> Tuple[int, str, Tuple[int, int, int, int, int]]:
  
         """
-        Given 7 card strings (community + hole),
-        returns (best_score, best_rank, best_five_ints).
-
-        - best_score: The numerical Treys 'score' (lower = better).
-        - best_rank:  String describing the class of the hand (e.g. "Straight", "Flush", etc.).
-        - best_five_ints: The best 5-card subset as Treys integers.
+        Determines the best 5-card hand from a 7-card combination.
+ 
+        Evaluates all 5-card combinations from the given 7 cards (hole + community),
+        and returns the best score, hand rank, and the best 5-card hand as Treys integers.
+ 
+        Args:
+            seven_card_strings (List[str]): A list of 7 card strings, e.g., ['Ah', 'Kd', 'Qs', 'Jh', 'Tc', '9c', '8d'].
+ 
+        Returns:
+            Tuple[int, str, Tuple[int, int, int, int, int]]:
+                - best_score (int): Treys score for the best hand (lower is better).
+                - best_rank (str): Human-readable classification of the hand (e.g., "Straight", "Flush").
+                - best_five_ints (Tuple[int, ...]): Tuple of Treys card integers representing the best hand.
         """
         evaluator = Evaluator()
 
@@ -1196,7 +1469,20 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     def convert_treys_str_int_pretty(self, str_cards: List[str]) -> str:
-        """ Convert string-based cards -> Treys card ints -> pretty string """
+
+        """  
+        Converts a list of card strings to Treys pretty string format.
+
+        This function converts string representations of cards (e.g., "Ah", "Kd")
+        into Treys card integers, then returns a human-readable string using Treys'
+        pretty string format.
+
+        Args:
+            str_cards (List[str]): List of card strings to convert.
+
+        Returns:
+            str: Treys-formatted pretty string of cards. 
+        """
         cards_ints = [Card.new(c) for c in str_cards]
         return Card.ints_to_pretty_str(cards_ints)
     
@@ -1204,7 +1490,17 @@ class GameConsumer(AsyncWebsocketConsumer):
     # -----------------------------------------------------------------------
     async def transfer_chips_to_profile(self, player: Player) -> None:
         """
-        Transfers the remaining chips from the game to the player's overall profile chips.
+        Transfers remaining in-game chips from a player to their profile.
+
+        This function is typically used when a game ends and a player has won.
+        It adds the player's remaining chips in the game to their profile's chip count,
+        resets their in-game chip count to 0, saves both objects, and broadcasts a win message.
+
+        Args:
+            player (Player): The player whose chips are being transferred.
+
+        Returns:
+            None
         """
 
         # Fetch user profile
@@ -1244,7 +1540,16 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def broadcast_messages(self, message: str) -> None:
         """
-        Stores and broadcasts game messages.
+        Stores and broadcasts game messages to all players.
+ 
+        Saves the message to Redis (keeping the last 10 messages) and broadcasts them
+        to all connected WebSocket clients in the game room.
+ 
+        Args:
+            message (str): The message to store and broadcast.
+ 
+        Returns:
+            None
         """
 
         # Store action messages in Redis (limit last 10 messages)
@@ -1265,7 +1570,16 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def send_action_message(self, event):
         """
-        Sends action messages to the frontend
+        Sends action messages to the frontend.
+ 
+        This is triggered by the `broadcast_messages` method to deliver the list of
+        recent game messages to the client.
+ 
+        Args:
+            event (dict): Contains the list of messages to send.
+ 
+        Returns:
+            None
         """
         message_data = {
             "messages": event["messages"],
@@ -1276,7 +1590,18 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     # -----------------------------------------------------------------------
     async def broadcast_game_state(self, game:Game) -> None:
-        """Sends updated game state to all connected players"""
+        """
+        Sends the complete game state to all connected players.
+ 
+        Constructs and sends a detailed game state payload including each player's status,
+        current phase, pot size, community cards, and the player whose turn it is.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
+        """
 
         # Fetch all players asynchronously
         players = await sync_to_async(
@@ -1288,7 +1613,8 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         # find how to return the first player and not None!
         current_player = next(
-            (p for p in players if p.position == game.current_turn), None
+            (p for p in players if p.position == game.current_turn),
+            players[0] if players else None
         )
 
         # current_player = next(
@@ -1351,13 +1677,34 @@ class GameConsumer(AsyncWebsocketConsumer):
         )
 
     async def send_game_state(self, event):
-        """Sends game state updates to frontend"""
+        """
+        Sends the game state payload to the frontend.
+ 
+        Triggered by `broadcast_game_state` to deliver real-time updates to the client.
+ 
+        Args:
+            event (dict): Contains the game state data.
+ 
+        Returns:
+            None
+        """
         await self.send(text_data=json.dumps(event["data"]))
 
 
     # -----------------------------------------------------------------------
     async def broadcast_private(self, game: Game) -> None:
-        """Sends updated game state privately to all connected players"""
+        """
+        Sends private game state updates (like hole cards) to each player.
+ 
+        Sends user-specific information (e.g., hole cards and total chips)
+        via their private WebSocket channel.
+ 
+        Args:
+            game (Game): The current game instance.
+ 
+        Returns:
+            None
+        """
 
         # Fetch all players asynchronously
         players = await sync_to_async(
@@ -1391,14 +1738,34 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def send_personal_game_state(self, event):
         """
-        Sends the player's own game state (including their hole cards).
+        Sends a player's private game data (e.g., hole cards).
+ 
+        Triggered by `broadcast_private` to send only to one player's WebSocket channel.
+ 
+        Args:
+            event (dict): Contains private data like hole cards and chip count.
+ 
+        Returns:
+            None
         """
         await self.send(text_data=json.dumps(event["data"]))
 
 
     # -----------------------------------------------------------------------
     async def send_private_game_state(self, game: Game, user: User) -> None:
-        """Sends private game state updates only to the reconnecting player."""
+        """
+        Sends private game state to a reconnecting player.
+ 
+        When a player reconnects to a game, this sends their private game info
+        (hole cards and chip count) only to them.
+ 
+        Args:
+            game (Game): The current game instance.
+            user (User): The reconnecting user.
+ 
+        Returns:
+            None
+        """
 
         # Get player's private hole cards
         player = await sync_to_async(lambda: game.players.filter(user=user).first())()
@@ -1427,5 +1794,15 @@ class GameConsumer(AsyncWebsocketConsumer):
         )
 
     async def send_private_update(self, event):
-        """Sends private hole cards update to the reconnecting player."""
+        """
+        Sends private hole cards update to the reconnecting player.
+ 
+        Triggered by `send_private_game_state`.
+ 
+        Args:
+            event (dict): Contains the private data payload.
+ 
+        Returns:
+            None
+        """
         await self.send(text_data=json.dumps(event["data"]))
