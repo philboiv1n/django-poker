@@ -61,14 +61,6 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Send private hole cards only to the reconnecting player, not broadcast
         await self.send_private_game_state(game, self.user)
 
-        # Retrieve & clean past messages from Redis
-        redis_key = f"game_{self.game_id}_messages"
-        stored_messages = redis_client.lrange(redis_key, -10, -1)
-        clean_messages = [json.loads(msg).get("message", "") for msg in stored_messages]
-
-        # Send cleaned messages to the client
-        await self.send(text_data=json.dumps({"messages": clean_messages}))
-
     # -----------------------------------------------------------------------
     async def disconnect(self, close_code) -> None:
         """
@@ -300,7 +292,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
         if len(remaining_players) < 2:
             game.status = "finished" if game.status == "active" else "waiting"
-            game.current_phase = ""
+            # game.current_phase = ""
+            await self.reset_hand(game)
         else:
             if game.dealer_position == player.position:
                 # @TODO Currently defaulting to first player, should it be
@@ -344,11 +337,24 @@ class GameConsumer(AsyncWebsocketConsumer):
         username = await sync_to_async(
             lambda: player.user.username, thread_sensitive=True
         )()
-        await self.broadcast_messages(f"🚫 {username} folded.")
-
+        await self.broadcast_messages(f"🔴 {username} folded.")
+        
         player.has_folded = True
         player.has_acted_this_round = True
         await sync_to_async(player.save)()
+
+        # Check if only one active player remains
+        active_players = await sync_to_async(
+            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+        )()
+        if len(active_players) == 1:
+            await self.end_phase(game, winner=active_players[0])
+            return
+
+        # If it was the folding player's turn, move to next player
+        if game.current_turn == player.position:
+            await self.next_player(game)
+            return
 
         # Move to the post action flow
         await self.post_action_flow(game)
@@ -394,11 +400,10 @@ class GameConsumer(AsyncWebsocketConsumer):
         username = await sync_to_async(
             lambda: player.user.username, thread_sensitive=True
         )()
-        await self.broadcast_messages(f"✅ {username} checked.")
+        await self.broadcast_messages(f"🔵 {username} checked.")
 
         # Move to the post action flow
         await self.post_action_flow(game)
-
 
 
 
@@ -453,10 +458,10 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         if player.is_all_in:
             await self.broadcast_messages(
-                f"🔴 {username} goes ALL-IN with {call_amount} chips!"
+                f"🟣 {username} goes ALL-IN with {call_amount} chips!"
             )
         else:
-            await self.broadcast_messages(f"📞 {username} called {call_amount} chips.")
+            await self.broadcast_messages(f"🟢 {username} called {call_amount} chips.")
 
         # Move to the post action flow
         await self.post_action_flow(game)
@@ -523,11 +528,11 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         if player.is_all_in:
             await self.broadcast_messages(
-                f"🔴 {username} goes ALL-IN with {amount} chips!"
+                f"🟣 {username} goes ALL-IN with {amount} chips!"
             )
         else:
             await self.broadcast_messages(
-                f"💰 {username} bet {amount} chips."
+                f"🟡 {username} bet {amount} chips."
             )
 
       
@@ -559,28 +564,33 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True)()
 
-        if len(active_players) == 1:
-            await self.end_phase(game, winner=active_players[0])
+        # commenting for now since we move this into the handle_fold function
+        # if len(active_players) == 1:
+        #     print("* POST ACTION FLOW - 1 active player left")
+        #     await self.end_phase(game, winner=active_players[0])
+        #     return
+
+        # General all-in logic for 2+ players
+        non_folded = [p for p in active_players if not p.has_folded]
+        # all_in_players = [p for p in non_folded if p.is_all_in]
+        not_all_in_players = [p for p in non_folded if not p.is_all_in]
+ 
+        # If everyone is all-in, auto-run remaining board
+        if len(not_all_in_players) == 0:
+            while game.current_phase != "showdown":
+                await self.advance_hand_phase(game)
+            await self.start_hand(game)
             return
-
-        if len(active_players) == 2:
-            p1, p2 = active_players
-
-            print("* POST ACTION FLOW - 2 players remains!")
-            # If both are all-in, automatically run out the board to showdown
-            if p1.is_all_in and p2.is_all_in:
+ 
+        # If only one player is not all-in and they’ve matched the highest total bet
+        if len(not_all_in_players) == 1:
+            max_bet = max(p.total_bet for p in non_folded)
+            remaining = not_all_in_players[0]
+            if remaining.total_bet >= max_bet:
+               # await self.end_phase(game)
                 while game.current_phase != "showdown":
-                   await self.advance_hand_phase(game)
-                await self.start_hand(game)   
-                return
-
-            # If exactly one is all-in and the other has matched that bet
-            # (no further action possible), skip just one street
-            if p1.is_all_in and p2.total_bet >= p1.total_bet:
-                await self.end_phase(game)
-                return
-            if p2.is_all_in and p1.total_bet >= p2.total_bet:
-                await self.end_phase(game)
+                    await self.advance_hand_phase(game)
+                await self.start_hand(game)
                 return
 
         # Check if the phase is over
@@ -628,13 +638,18 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
 
         # Resetting players for a new hand
-        for player in players:
-            player.total_bet = 0
-            player.has_folded = False
-            player.is_all_in = False
-            player.is_small_blind = False
-            player.is_big_blind = False
-            await sync_to_async(player.save)()
+        # for player in players:
+        #     player.total_bet = 0
+        #     player.has_folded = False
+        #     player.is_all_in = False
+        #     player.is_small_blind = False
+        #     player.is_big_blind = False
+        #     player.has_checked = False
+        #     player.has_acted_this_round = False
+        #     await sync_to_async(player.save)()
+
+        # Reset and start the hand!
+        await self.reset_hand(game)
 
         # Get blind amounts
         big_blind = game.big_blind
@@ -659,7 +674,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
 
         # If only 1 player remains, end the hand
-        if len(players) < 2:
+        if len(players) == 1:
             print("*** Only 1 player left. Ending game and transferring chips.")
             await self.transfer_chips_to_profile(players[0])
             username = await sync_to_async(
@@ -670,8 +685,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.broadcast_private(game)
             return
 
-        # Reset and start the hand!
-        await self.reset_hand(game)
+        # # Reset and start the hand!
+        # await self.reset_hand(game)
 
         # Assign dealer
         await self.rotate_dealer(game)
@@ -682,9 +697,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Create a deck (52 cards)
         suits = ["s", "c", "h", "d"]  # ["♠", "♣", "♥", "♦"]
         ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
-        deck = [
-            f"{rank}{suit}" for suit in suits for rank in ranks
-        ]  # List of all cards
+        deck = [f"{rank}{suit}" for suit in suits for rank in ranks]
 
         # Shuffle and save the deck
         random.shuffle(deck)
@@ -726,6 +739,18 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.deck = []
         game.community_cards = []
         game.current_phase = "preflop"
+
+        players = await sync_to_async(lambda: list(game.players.all()), thread_sensitive=True)()
+        for player in players:
+            player.total_bet = 0
+            player.has_folded = False
+            player.is_all_in = False
+            player.is_small_blind = False
+            player.is_big_blind = False
+            player.has_checked = False
+            player.has_acted_this_round = False
+            await sync_to_async(player.save)()
+        
         await sync_to_async(game.save)()
 
 
@@ -772,7 +797,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             (i for i, p in enumerate(players) if p.position == game.dealer_position), -1
         )
 
-         # If we can't find them, default to seat 0
+        # If we can't find them, default to seat 0
         if current_dealer_index == -1:
             new_dealer_index = 0
         else:
@@ -793,7 +818,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
 
         # Broadcast
-        await self.broadcast_messages(f"🔄 New dealer : {new_dealer_username}.")
+        await self.broadcast_messages(f"⭐️ New dealer : {new_dealer_username}.")
 
 
     # -----------------------------------------------------------------------
@@ -819,8 +844,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
 
         if len(players) < 2:
-            print("Not enough players to assign blinds.")
-            return  # Safety check
+            return # Safety check
 
         # Find the dealer index in the players list
         dealer_index = next(
@@ -828,8 +852,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             -1
         )
         if dealer_index == -1:
-            print("Dealer position not found, cannot assign blinds.")
-            return
+            return # Safety check
 
         small_blind = game.small_blind
         big_blind = game.big_blind
@@ -877,8 +900,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         sb_username = await sync_to_async(lambda: small_blind_player.user.username)()
         bb_username = await sync_to_async(lambda: big_blind_player.user.username)()
 
-        await self.broadcast_messages(f"💰 {sb_username} posts SMALL blind ({small_blind} chips).")
-        await self.broadcast_messages(f"💰 {bb_username} posts BIG blind ({big_blind} chips).")
+        await self.broadcast_messages(f"✨ {sb_username} post SMALL blind ({small_blind} chips).")
+        await self.broadcast_messages(f"✨ {bb_username} post BIG blind ({big_blind} chips).")
 
         # Save
         await sync_to_async(game.save)()
@@ -1032,8 +1055,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
 
         # If all active players have checked with no bet
-        all_players_checked = all(p.has_checked for p in active_players)
-        all_players_matched_bet = all(p.current_bet == highest_bet for p in active_players)
+        all_players_checked = all(p.has_checked for p in active_players if not p.has_folded)
+        all_players_matched_bet = all(p.current_bet == highest_bet for p in active_players if not p.has_folded)
 
         # If it's preflop and the big blind hasn't acted yet
         if game.current_phase == "preflop":
@@ -1138,111 +1161,55 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         if game.current_phase == "preflop":
             game.current_phase = "flop"
-            await self.move_to_flop(game)
+            await self.move_to("flop",game)
         elif game.current_phase == "flop":
             game.current_phase = "turn"
-            await self.move_to_turn(game)
+            await self.move_to("turn",game)
         elif game.current_phase == "turn":
             game.current_phase = "river"
-            await self.move_to_river(game)
+            await self.move_to("river",game)
         elif game.current_phase == "river":
             game.current_phase = "showdown"
             await self.handle_showdown(game)
 
         await sync_to_async(game.save)()
 
-    # -----------------------------------------------------------------------
-    async def move_to_flop(self, game:Game) -> None:
-        """
-        Deals the Flop: 3 community cards and burns 1 card.
- 
-        Updates the community cards in the game instance, removes the dealt cards
-        from the deck, saves the game state, and broadcasts the updated community
-        cards to all players.
- 
-        Args:
-            game (Game): The current game instance.
- 
-        Returns:
-            None
-        """
 
-        print("* FLOP")
-
-        await self.burn_card(game)  # Burn 1 card
-        game.community_cards.extend(game.deck[:3])  # Deal 3 cards
-        game.deck = game.deck[3:]  # Remove dealt cards from deck
-        await sync_to_async(game.save)()
-
-        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
-
-        # Broadcast
-        await self.broadcast_messages(
-            f"📢 The Flop has been dealt : {cards_pretty}"
-        )
 
     # -----------------------------------------------------------------------
-    async def move_to_turn(self, game: Game) -> None:
-
+    async def move_to(self, phase: str, game):
         """
-        Deals the Turn: 1 community card and burns 1 card.
- 
-        Appends the dealt card to the community cards list, removes the card from
-        the deck, saves the game state, and broadcasts the updated community cards
-        to all players.
- 
-        Args:
-            game (Game): The current game instance.
- 
-        Returns:
-            None
-        """
-                
-        print("* TURN")
-
-        await self.burn_card(game)  # Burn 1 card
-        game.community_cards.append(game.deck.pop(0))  # Deal 1 card
-        await sync_to_async(game.save)()
-
-        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
-
-        # Broadcast
-        await self.broadcast_messages(
-            f"📢 The Turn has been dealt : {cards_pretty}"
-        )
-
-    # -----------------------------------------------------------------------
-    async def move_to_river(self, game: Game) -> None:
-
-        """
-        Deals the River: 1 community card and burns 1 card.
- 
-        Appends the dealt card to the community cards list, removes the card from
-        the deck, saves the game state, and broadcasts the updated community cards
-        to all players.
- 
-        Args:
-            game (Game): The current game instance.
- 
-        Returns:
-            None
-        """
-
-        print("* RIVER")
-
-        await self.burn_card(game)  # Burn 1 card
-        game.community_cards.append(game.deck.pop(0))  # Deal 1 card
-        await sync_to_async(game.save)()
+        Advances the game to the specified phase (flop, turn, or river),
+        burns a card, deals community cards, and updates game state.
         
-        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
+        Parameters:
+        - phase (str): One of "flop", "turn", or "river"
+        - game: Game instance to modify
+        """
+        phase = phase.lower()
+
+        if phase not in {"flop", "turn", "river"}:
+            return #Safety check
+
+        # Burn one card
+        await self.burn_card(game)
+
+        # Determine how many cards to deal
+        cards_to_deal = 3 if phase == "flop" else 1
+        dealt_cards = game.deck[:cards_to_deal]
+        game.community_cards.extend(dealt_cards)
+        game.deck = game.deck[cards_to_deal:]
+
+        # Save
+        await sync_to_async(game.save)()
 
         # Broadcast
-        await self.broadcast_messages(
-            f"📢 The River has been dealt : {cards_pretty}"
-        )
+        cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
+        phase_label = f"📡 {phase.capitalize()} has been dealt : {cards_pretty}"
+        await self.broadcast_messages(phase_label)
+
 
     # -----------------------------------------------------------------------
-   
     async def handle_showdown(self, game: Game) -> None:
         """
         Determines winners and distributes the pot among eligible players.
@@ -1318,7 +1285,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 
                 # Broadcast
                 await self.broadcast_messages(
-                    f"🏆 {username} wins {share} chips with {pretty_str} ({win_rank})"
+                    f"🏆 {username} wins {share} with {pretty_str.replace(",", "")} ({win_rank})"
                 )
 
         
@@ -1484,7 +1451,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             str: Treys-formatted pretty string of cards. 
         """
         cards_ints = [Card.new(c) for c in str_cards]
-        return Card.ints_to_pretty_str(cards_ints)
+        cards_str = Card.ints_to_pretty_str(cards_ints)
+        return cards_str.replace(",","")
     
 
     # -----------------------------------------------------------------------
@@ -1540,11 +1508,10 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     async def broadcast_messages(self, message: str) -> None:
         """
-        Stores and broadcasts game messages to all players.
- 
-        Saves the message to Redis (keeping the last 10 messages) and broadcasts them
-        to all connected WebSocket clients in the game room.
- 
+        Stores (in Redis) and broadcasts only the *newly added* message to all players.
+
+        Keeps the last 10 messages in Redis, but clients only receive this most recent one.
+
         Args:
             message (str): The message to store and broadcast.
  
@@ -1552,19 +1519,18 @@ class GameConsumer(AsyncWebsocketConsumer):
             None
         """
 
-        # Store action messages in Redis (limit last 10 messages)
+        # Store the message in Redis (pushing to the end of the list)
         redis_key = f"game_{self.game_id}_messages"
         redis_client.rpush(redis_key, json.dumps({"message": message}))
+        # Trim to last 10
         redis_client.ltrim(redis_key, -10, -1)
-        stored_messages = redis_client.lrange(redis_key, -10, -1)
-        clean_messages = [json.loads(msg).get("message", "") for msg in stored_messages]
 
-        # Broadcast message to all players
+        # Broadcast *only* the newly-added message
         await self.channel_layer.group_send(
             self.room_group_name,
             {
                 "type": "send_action_message",
-                "messages": clean_messages,
+                "messages": [message], 
             },
         )
 
@@ -1610,16 +1576,10 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         
         # Find the current player in the list
-
-        # find how to return the first player and not None!
         current_player = next(
             (p for p in players if p.position == game.current_turn),
             players[0] if players else None
         )
-
-        # current_player = next(
-        #     (p for p in players if p.position == game.current_turn), None
-        # )
 
         current_username = (
             await sync_to_async(

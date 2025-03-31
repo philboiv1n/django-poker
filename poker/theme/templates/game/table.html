@@ -19,13 +19,13 @@ Game information
   <h1 class="text-xl md:text-2xl my-2">{{ game.name }}</h1>
   <div class="text-sm">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.</div>
   <div class="text-sm">Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}</div>
-  <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span> (<span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span>)</div>
+  <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span></div>
   
   <!-- Join / Leave Table Button  -->
-    <button id="join-button" onclick="sendJoin()" 
-      class="my-4 p-2 mr-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-center shadow-xl">Join Table</button>
-    <button id="leave-button" onclick="sendLeave()" 
-      class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-xl">Leave Table</button>
+  <button id="join-button" onclick="sendJoin()" 
+    class="my-4 p-2 mr-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-center shadow-xl">Join Table</button>
+  <button id="leave-button" onclick="sendLeave()" 
+    class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-xl">Leave Table</button>
 </div>
 
 <!---------------------------------------------------------------------------
@@ -39,8 +39,13 @@ Community cards
 ---------------------------------------------------------------------------->
 <span id="community-cards" style="display: none;">{{ game.community_cards }}</span>
 
-  <div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
-  <h2 class="text-xl">Community cards</h2>
+<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
+  <h2 class="text-xl"><span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span></h2>
+
+  <div class="flex flex-col my-6">
+    <div class="flex gap-2" id="communityCardsContainer"></div>
+  </div>
+
   <div>
     Total Pot : <span id="current-pot">
      <script>
@@ -49,9 +54,6 @@ Community cards
      </script>
     </span>
   </div>
-  <div class="flex flex-col my-6">
-    <div class="flex gap-2" id="communityCardsContainer"></div>
-  </div>
   
 </div>
 
@@ -59,22 +61,22 @@ Community cards
   <!---------------------------------------------------------------------------
   Player cards and actions
   ---------------------------------------------------------------------------->
-  <div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
+<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
 
     <div class="text-l">Your cards</div>
     <div class="flex gap-2 pt-2 pb-6" id="hole-cards"></div>
 
-  <div class="flex gap-4">
-      <button onclick="sendAction('fold')" class="bg-red-500 px-4 py-2 rounded shadow-xl action-button">Fold</button>
-      <button onclick="sendAction('check')" class="bg-yellow-500 px-4 py-2 rounded shadow-xl action-button">Check</button>
-      <button onclick="sendAction('call')" class="bg-green-500 px-4 py-2 rounded shadow-xl action-button">Call</button>
-      <button class="bg-blue-500 px-4 py-2 rounded shadow-xl action-button">All-in</button>
-  </div>
-  <div class="flex gap-4 mt-4">
-      <input type="number" id="bet-amount" placeholder="Bet Amount" min="1" max="999999999" value="{{ game.big_blind }}" 
-        oninput="validateBetInput(this)" class="bg-gray-600 text-white p-2 rounded shadow-xl">
-      <button onclick="placeBet()" class="bg-purple-500 px-4 py-2 rounded shadow-xl action-button">Bet</button>
-  </div>
+    <div class="flex gap-4">
+        <button onclick="sendAction('fold')" class="bg-gradient-to-r from-red-600 to-red-500 text-white px-4 py-2 rounded shadow-xl action-button">Fold</button>
+        <button onclick="sendAction('check')" class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-4 py-2 rounded shadow-xl action-button">Check</button>
+        <button onclick="sendAction('call')" class="bg-gradient-to-r from-green-600 to-green-500 text-white px-4 py-2 rounded shadow-xl action-button">Call</button>
+        <!-- <button class="bg-gradient-to-r from-purple-600 to-purple-500 text-white px-4 py-2 rounded shadow-xl action-button">All-In</button> -->
+    </div>
+    <div class="flex gap-4 mt-4">
+        <input type="number" id="bet-amount" placeholder="Bet Amount" min="1" max="999999999" value="{{ game.big_blind }}" 
+          oninput="validateBetInput(this)" class="bg-gray-600 text-white p-2 rounded shadow-xl">
+        <button onclick="placeBet()" class="bg-gradient-to-r from-yellow-600 to-yellow-500 text-white px-4 py-2 rounded shadow-xl action-button">Bet</button>
+    </div>
 </div>
 
 <!---------------------------------------------------------------------------
@@ -86,8 +88,15 @@ Messages
     <ul id="action-messages"></ul>
   </div>
 
-</div>
 
+   <!-- Overlay message -->
+   <div id="overlay" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
+    <div id="overlayContent" class="bg-gray-500 p-8 rounded-lg shadow-xl text-center max-w-md w-full">
+        <p id="overlayMessage" class="text-xl text-gray-200 font-bold tracking-wide"></p>
+    </div>
+  </div>
+
+</div>
 
 <!---------------------------------------------------------------------------
 End of HTML
@@ -114,9 +123,13 @@ Javascript
   let username = "{{ request.user.username }}";  // Get the current user's name
   let reconnectInterval = 5000;  // 5 seconds before trying to reconnect
   let currentTurnUsername = "{{ current_turn_username }}";  // Get initial turn username
-  let gamePhase = "{{ game.current_phase }}";
+  let currentPhase = "{{ game.current_phase }}";
   let gameStatus = "{{ game.status }}";
-  let isPlayer = "{{ is_player }}";
+  let isPlayer = {{ is_player|yesno:"true,false" }};
+
+  // Global queue to store incoming messages
+  let messageQueue = [];
+  let isProcessingQueue = false;
 
 
   /* -----------------------------------------------------------------------
@@ -126,9 +139,6 @@ Javascript
   function connectWebSocket() {
 
     socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
-    socket.onopen = function () {
-      document.getElementById("action-messages").innerHTML = "";
-    };
 
     socket.onmessage = function (event) {
       const data = JSON.parse(event.data);
@@ -139,14 +149,20 @@ Javascript
 
         // Alert user if error detected
         if (data.error !== undefined) {
-          alert(data.error);
+          showTemporaryMessage(data.error, "error", 1000);
         }
+
+        // Update players list
+        if (data.players) {
+          renderPlayersList(data.players, "players-list");
+          isPlayer = data.players.some(player => player.username === username);
+        } 
 
         // Update buttons state
         if (data.type === "update_game_state") {
-          let gameStatus = data.game_status;
-          let currentUsername = data.current_username;
-          let currentPhase = data.current_phase;
+          gameStatus = data.game_status;
+          currentUsername = data.current_username;
+          currentPhase = data.current_phase;
           buttonsStateMachine(gameStatus, currentPhase, currentUsername, username, isPlayer);
         }
 
@@ -182,42 +198,14 @@ Javascript
           num = data.total_user_chips.toLocaleString('fr-CA');
           document.getElementById("total_user_chips").innerText = num;
         }
-        
-
-        // Update current turn player
-        // if (data.current_turn !== undefined) {
-        //   document.getElementById("current-turn").innerText =
-        //     data.players.find(p => p.position === data.current_turn)?.username || "";
-        // }
-
-        // Update players list
-        if (data.players) {
-          renderPlayersList(data.players, "players-list");
-          let isPlayer = data.players.some(player => player.username === username);
-          let playerCount = data.players.length;
-          let maxPlayers = parseInt("{{ game.max_players }}");
-        }
-
-
+      
       }
       
-    
-      // Display messages
-      if (data.messages) {
-          
-          let messagesList = document.getElementById("action-messages");
-          messagesList.innerHTML = ""; 
-
-          // Ensure the `ul` element exists before modifying
-          if (!messagesList) {
-              console.error("Error: 'action-messages' element not found!");
-              return;
-          }
-          data.messages.forEach(msg => {
-              let li = document.createElement("li");
-              li.innerText = msg;
-              messagesList.insertBefore(li, messagesList.firstChild);
-          });
+      if (data.messages && data.messages.length > 0) {
+        // Enqueue all incoming messages
+        data.messages.forEach(msg => messageQueue.push(msg));
+        // Trigger processing
+        processQueue();
       }
 
     };
@@ -254,7 +242,7 @@ Javascript
   function sendJoin() {
     if (socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ action: "join", player: username }));
-      isPlayer = "true";
+      isPlayer = true;
     } else {
         console.warn("WebSocket is not open.");
     }
@@ -268,17 +256,11 @@ Javascript
     if (socket.readyState === WebSocket.OPEN) {
       document.getElementById("hole-cards").innerText = ""
       socket.send(JSON.stringify({ action: "leave", player: username }));
-      isPlayer = "false";
+      isPlayer = false;
     } else {
         console.warn("WebSocket is not open.");
     }
   }
-
-
-
-
-
-
 
 
   /* -----------------------------------------------------------------------
@@ -382,10 +364,12 @@ Javascript
     actionButtons.forEach(button => {
       if (status) {
         button.disabled = false;  // Enable for current turn user
+        button.classList.add("bg-gradient-to-r");
         button.classList.remove("disabled:bg-gray-600", "disabled:text-gray-400");
       } else {
         button.disabled = true;  // Disable for current turn user
         button.classList.add("disabled:bg-gray-600", "disabled:text-gray-400");
+        button.classList.remove("bg-gradient-to-r");
       }
     });
   }
@@ -430,14 +414,14 @@ Javascript
   /* -----------------------------------------------------------------------
   * Central function that manages button visibility and states.
   * @param {string} gameStatus - "waiting", "active", "finished"
-  * @param {string} gamePhase - Current game phase
+  * @param {string} currentPhase - Current game phase
   * @param {string} currentTurnUsername - Who is currently acting
   * @param {string} username - The current user's name
   * @param {string} isPlayer - "true" if user is seated at table
   * ----------------------------------------------------------------------*/
   function buttonsStateMachine(
     gameStatus,
-    gamePhase,
+    currentPhase,
     currentTurnUsername,
     username,
     isPlayer
@@ -451,23 +435,23 @@ Javascript
    
     // 2) if the game is finished => any seated player can leave
     if (gameStatus === "finished") {
-      if (isPlayer === "true") {
+      if (isPlayer === true) {
         enable_leave_button(true);
       }
       return;
     }
 
     // 3) if we are in showdown => no one can act,
-    if (gamePhase === "showdown") {
+    if (currentPhase === "showdown") {
       return;
     }
 
     // 4) if the game is waiting => non-players can join; players can leave
     if (gameStatus === "waiting") {
-      if (isPlayer === "false") {
+      if (isPlayer === false) {
         enable_join_button(true);
       }
-      if (isPlayer === "true") {
+      if (isPlayer === true) {
         enable_leave_button(true);
       }
       return;
@@ -475,7 +459,7 @@ Javascript
 
     // 5) if the game is active => only the current-turn player can act or leave
     if (gameStatus === "active") {
-      if (isPlayer === "true") {
+      if (isPlayer === true) {
         if (currentTurnUsername === username) {
           enable_action_buttons(true);
           enable_leave_button(true);
@@ -496,6 +480,13 @@ Javascript
     // In case the container doesn't exist or has changed
     if (!playerList) return;
 
+    // Testing front-end
+    // testObj = players[players.length -1];
+    // for (let i = 0; i < 7; i++) {
+    //   players.push({ ...testObj });
+    // }
+
+
     // We re-apply the flex + layout classes
     playerList.setAttribute("class","flex flex-wrap justify-center gap-4 w-full my-4 p-4");
 
@@ -506,7 +497,7 @@ Javascript
     players.forEach(player => {
       const li = document.createElement("li");
       li.setAttribute("data-position", player.position);
-      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg w-36 sm:w-1/2 lg:w-[18%] shadow-lg");
+      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg w-36 sm:w-1/3 lg:w-[18%] shadow-lg");
       
       // Dealer marker
       const dealerMarkup = player.is_dealer
@@ -521,6 +512,11 @@ Javascript
       // Big blind
       const bigBlindMarkup = player.is_big_blind
         ? `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-black text-black" style="background-color: yellow;">B</span>`
+        : "";
+
+      // Has folded ?
+      const foldMarkup = player.has_folded
+        ? `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-black text-black" style="background-color: red;">X</span>`
         : "";
 
       // Next to play ?
@@ -544,6 +540,7 @@ Javascript
           ${dealerMarkup}
           ${smallBlindMarkup}
           ${bigBlindMarkup}
+          ${foldMarkup}
         </span>
          ${nextMarkup}
       `;
@@ -553,7 +550,94 @@ Javascript
   }
 
 
+  /* -----------------------------------------------------------------------
+  * Displays a temporary overlay message on the screen.
+  *
+  * The overlay fades in with the specified message and background color depending on the type
+  * ("error" or any other type). It then disappears after the given duration.
+  *
+  * @param {string} message - The text to display in the overlay.
+  * @param {string} type - The type of message ("error" displays red background, others use gray).
+  * @param {number} duration - How long the message stays visible in milliseconds (default is 1000ms).
+  * ----------------------------------------------------------------------*/
+  function showTemporaryMessage(message, type, duration = 1000) {
+        // Get overlay elements
+        const overlay = document.getElementById('overlay');
+        const overlayContent = document.getElementById('overlayContent');
+        const messageElement = document.getElementById('overlayMessage');
 
+        // Set message text
+        messageElement.textContent = message;
+
+        // Show overlay
+        overlay.classList.remove('hidden');
+        overlay.classList.add('flex');
+
+        // Change message background for error
+        const isError = type === "error";
+        overlayContent.classList.toggle('bg-red-700', isError);
+        overlayContent.classList.toggle('bg-gray-500', !isError);
+
+        // Hide overlay after specified duration
+        setTimeout(() => {
+            overlay.classList.remove('flex');
+            overlay.classList.add('hidden');
+        }, duration);
+  }
+
+
+  /* -----------------------------------------------------------------------
+  * 
+  * ----------------------------------------------------------------------*/
+  function processQueue() {
+    // If we're already processing, do nothing
+    if (isProcessingQueue) return;
+
+    // Mark that we're processing
+    isProcessingQueue = true;
+
+    // Start an async-like loop using setTimeout
+    showNextMessage();
+  }
+
+
+  /* -----------------------------------------------------------------------
+  * 
+  * ----------------------------------------------------------------------*/
+  function showNextMessage() {
+    // If queue is empty, we're done
+    if (messageQueue.length === 0) {
+      isProcessingQueue = false;
+      return;
+    }
+
+    // Otherwise, take the next message from the front of the queue
+    const msg = messageQueue.shift();
+
+    // Show it on the overlay for 1 second
+    showTemporaryMessage(msg, "info", 1000); // your existing overlay function
+
+    // After 1 second, append it to the #action-messages
+    setTimeout(() => {
+      const messagesList = document.getElementById("action-messages");
+      
+      // Remove the oldest item if we already have 10 (or any other limit you choose)
+      const maxItems = 10;
+      const existingItems = messagesList.querySelectorAll("li");
+      if (existingItems.length >= maxItems) {
+        // Remove the last li (i.e., the bottom-most item if new are inserted at the top)
+        messagesList.removeChild(existingItems[existingItems.length - 1]);
+      }
+
+      // Insert the new message at the top
+      const li = document.createElement("li");
+      li.innerText = msg;
+      messagesList.insertBefore(li, messagesList.firstChild);
+
+      // Then move on to the next message
+      showNextMessage();
+    }, 1000);
+}
 
 
 
@@ -563,7 +647,7 @@ Javascript
   window.onload = function() {
 
     // Update buttons state
-    buttonsStateMachine(gameStatus, gamePhase, currentTurnUsername, username, isPlayer);
+    buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer);
    
     // Load initial community cards
     loadInitialCommunityCards();
@@ -572,6 +656,17 @@ Javascript
     let playersData = JSON.parse('{{ players_json|safe }}');
     renderPlayersList(playersData, "players-list");
 
+
+    // Display messages
+    const lastMessages = JSON.parse('{{ last_messages_json|safe }}');
+    const messagesList = document.getElementById("action-messages");
+    lastMessages.forEach(msg => {
+      const li = document.createElement("li");
+      li.innerText = msg;
+      messagesList.insertBefore(li, messagesList.firstChild);
+    });
+
+
   };
 
 
@@ -579,6 +674,8 @@ Javascript
 * Initial WebSocket Connection
 * ----------------------------------------------------------------------*/
 connectWebSocket();
+
+
 
 </script>
 
