@@ -54,3 +54,4 @@ env.bak/
 venv.bak/xw
 
 .DS_Store
+*.sqlite3
