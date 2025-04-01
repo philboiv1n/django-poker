@@ -56,7 +56,13 @@ class UserAdmin(BaseUserAdmin):
     directly on the User admin page.
     """
 
+    def get_inline_instances(self, request, obj=None):
+        if obj:  # Only show inlines if the user already exists
+            return super().get_inline_instances(request, obj)
+        return []
+
     inlines = (ProfileInline,)
+
 
     def get_readonly_fields(self, request, obj=None):
         """
@@ -65,15 +71,13 @@ class UserAdmin(BaseUserAdmin):
         we don't set read-only fields.
         """
         return self.readonly_fields if obj else ()
+    
 
     def save_model(self, request, obj, form, change):
         """
         Ensures that a Profile is created when a new User is added via the Admin Panel.
         """
-        is_new_user = (
-            not obj.pk
-        )  # Check if the user is being created for the first time
-
+        is_new_user = not obj.pk
         super().save_model(request, obj, form, change)  # Save the user first
 
         if is_new_user:
@@ -111,6 +115,25 @@ class GameAdmin(admin.ModelAdmin):
     search_fields = ("name",)
     ordering = ("-created_at",)
 
+    def get_fields(self, request, obj=None):
+        """
+        Customize which fields are shown in the form.
+        Hide internal fields like deck, side_pots, etc.
+        """
+        fields = [
+            "name",
+            "game_type",
+            "betting_type",
+            "buy_in",
+            "max_players",
+            "small_blind",
+            "big_blind",
+            "blind_timer",
+
+        ]
+        # if obj:  # When editing, show readonly fields too
+        #     fields += ["community_cards", "deck", "side_pots"]
+        return fields
 
 @admin.register(Player)
 class PlayerAdmin(admin.ModelAdmin):

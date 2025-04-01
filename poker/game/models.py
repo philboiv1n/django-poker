@@ -36,7 +36,7 @@ class Profile(models.Model):
 
     # Links this Profile to a single User (1-to-1 relationship).
     # When the User is deleted, the Profile is also removed.
-    user = models.OneToOneField(User, on_delete=models.CASCADE, unique=True)
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
 
     # Hex color code (e.g., "#FF5733") for the player's avatar or display.
     avatar_color = models.CharField(max_length=7, default="#000000")

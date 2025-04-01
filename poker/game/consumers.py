@@ -292,7 +292,6 @@ class GameConsumer(AsyncWebsocketConsumer):
         )()
         if len(remaining_players) < 2:
             game.status = "finished" if game.status == "active" else "waiting"
-            # game.current_phase = ""
             await self.reset_hand(game)
         else:
             if game.dealer_position == player.position:
@@ -781,43 +780,37 @@ class GameConsumer(AsyncWebsocketConsumer):
             return 
 
         # If we have never set a dealer before, default to the first seat
-        # @TODO - Update to select a random dealer to start.
         if game.dealer_position is None:
-            game.dealer_position = players[0].position
-            await sync_to_async(game.save)()
-            first_dealer_username = await sync_to_async(
-                lambda: players[0].user.username,
-                thread_sensitive=True,
-            )()
-            await self.broadcast_messages(f"🔄 Dealer is set to: {first_dealer_username} (first hand).")
-            return
+            new_dealer_index = players[0].position
+        else :
+            # Find the current dealer's position in the list
+            current_dealer_index = next(
+                (i for i, p in enumerate(players) if p.position == game.dealer_position), -1
+            )
 
-        # Find the current dealer's position in the list
-        current_dealer_index = next(
-            (i for i, p in enumerate(players) if p.position == game.dealer_position), -1
-        )
+            # If we can't find them, default to seat 0
+            if current_dealer_index == -1:
+                new_dealer_index = 0
+            else:
+                # Move dealer to next seat in a circular fashion
+                new_dealer_index = (current_dealer_index + 1) % len(players)
 
-        # If we can't find them, default to seat 0
-        if current_dealer_index == -1:
-            new_dealer_index = 0
-        else:
-            # Move dealer to next seat in a circular fashion
-            new_dealer_index = (current_dealer_index + 1) % len(players)
-
+  
         new_dealer = players[new_dealer_index]
-
+      
+        # Reset the is_dealer flag for all players and assign to new dealer
         await sync_to_async(lambda: Player.objects.filter(game=game).update(is_dealer=False))()
         new_dealer.is_dealer = True
         await sync_to_async(new_dealer.save)()
 
+        # Update game
         game.dealer_position = new_dealer.position
         await sync_to_async(game.save)()
 
+         # Broadcast
         new_dealer_username = await sync_to_async(
             lambda: new_dealer.user.username, thread_sensitive=True
         )()
-
-        # Broadcast
         await self.broadcast_messages(f"⭐️ New dealer : {new_dealer_username}.")
 
 
@@ -1205,7 +1198,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         # Broadcast
         cards_pretty = await sync_to_async(self.convert_treys_str_int_pretty)(game.community_cards)
-        phase_label = f"📡 {phase.capitalize()} has been dealt : {cards_pretty}"
+        phase_label = f"📡 {phase.capitalize()} : {cards_pretty}"
         await self.broadcast_messages(phase_label)
 
 

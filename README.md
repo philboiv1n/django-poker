@@ -23,3 +23,19 @@ ALLOWED_HOSTS=127.0.0.1,localhost
 REDIS_HOST=redis
 REDIS_PORT=6379
 ```
+
+## Database
+
+After cloning the repository, you'll need to create a fresh local database (SQLite)
+
+```
+python manage.py makemigrations
+python manage.py migrate
+```
+
+Then you can create a superuser for the admin panel.
+```
+python manage.py createsuperuser
+```
+Please note that you won't be able to play with this user, unless you assign it to a profile.
+You can create new users with this admin account (which will create profile automatically)

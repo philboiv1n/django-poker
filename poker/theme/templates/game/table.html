@@ -253,9 +253,12 @@ Javascript
   * Sends a leave request for the current user via WebSocket.
   * ----------------------------------------------------------------------*/
   function sendLeave() {
+    if (!confirm("Are you sure you want to leave the table?")) {
+      return; // User canceled
+    }
     if (socket.readyState === WebSocket.OPEN) {
-      document.getElementById("hole-cards").innerText = ""
       socket.send(JSON.stringify({ action: "leave", player: username }));
+      document.getElementById("hole-cards").innerText = ""
       isPlayer = false;
     } else {
         console.warn("WebSocket is not open.");
