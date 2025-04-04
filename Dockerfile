@@ -32,5 +32,9 @@ ENV PYTHONPATH=/code/poker:$PYTHONPATH
 # Create directory for static files
 RUN mkdir -p /code/poker/staticfiles
 
+# Copy entrypoint script with proper permissions to a location not affected by volume mounts
+COPY --chmod=755 poker/entrypoint.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
 # Run Django's collectstatic command to gather all static files
 RUN python /code/poker/manage.py collectstatic --noinput

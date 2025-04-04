@@ -207,6 +207,18 @@ class GameConsumer(AsyncWebsocketConsumer):
             )
             return
 
+        # Find the lowest available position
+        taken_positions = await sync_to_async(
+            lambda: list(game.players.values_list("position", flat=True))
+        )()
+        available_positions = [
+            pos for pos in range(game.max_players) if pos not in taken_positions
+        ]
+        if not available_positions:
+            await self.send(text_data=json.dumps({"error": "Table is full!"}))
+            return  # No available positions
+
+
         # Ensure the player has enough chips
         if user_profile.chips < game.buy_in:
             await self.send(
@@ -219,17 +231,6 @@ class GameConsumer(AsyncWebsocketConsumer):
             lambda: setattr(user_profile, "chips", user_profile.chips - game.buy_in)
         )()
         await sync_to_async(user_profile.save)()
-
-        # Find the lowest available position
-        taken_positions = await sync_to_async(
-            lambda: list(game.players.values_list("position", flat=True))
-        )()
-        available_positions = [
-            pos for pos in range(game.max_players) if pos not in taken_positions
-        ]
-        if not available_positions:
-            await self.send(text_data=json.dumps({"error": "Table is full!"}))
-            return  # No available positions
 
         # Create new Player
         await sync_to_async(Player.objects.create)(
@@ -300,9 +301,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.reset_hand(game)
         else:
             if game.dealer_position == player.position:
-                # @TODO Currently defaulting to first player, should it be
-                # next player instead ?
-                game.dealer_position = remaining_players[0].position
+                game.dealer_position = self.next_player(game, player.position)
+               # game.dealer_position = remaining_players[0].position
             if game.current_turn == player.position:
                 await self.next_player(game)
 
@@ -357,9 +357,6 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.end_phase(game, winner=active_players[0])
             return
 
-        # If it was the folding player's turn, move to next player
-      #  if game.current_turn == player.position:
-       #     await self.next_player(game)
         await self.post_action_flow(game)
 
 
@@ -894,10 +891,13 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Save
         await sync_to_async(game.save)()
 
-    # -----------------------------------------------------------------------
-    # async def next_player(self, game: Game) -> None:
+   
+    
+    # async def next_player(self, game: Game, start_position: int = None) -> None:
     #     """
     #     Advances the turn to the next active player who has not folded and is not all-in.
+    #     Optionally starts the search from a given position (e.g., dealer + 1), replacing
+    #     the need for a separate 'get_first_player_after_dealer' function.
 
     #     If all active players are all-in, the function skips to the showdown by auto-advancing
     #     through remaining phases and starting a new hand. Otherwise, it rotates the turn to 
@@ -905,130 +905,93 @@ class GameConsumer(AsyncWebsocketConsumer):
 
     #     Args:
     #         game (Game): The current game instance.
+    #         start_position (int, optional): The position to begin searching from. Defaults to current_turn.
 
     #     Returns:
     #         None
     #     """
-
     #     print("* NEXT PLAYER")
-
-    #     active_players = await sync_to_async(
-    #         lambda: list(game.players.filter(has_folded=False).order_by("position")),
-    #         thread_sensitive=True,
-    #     )()
-
-    #     # Safety check: No active players left
+ 
+    #     # Get active players that have not folded, sorted by position
+    #     active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False).order_by("position")))()
     #     if not active_players:
     #         return
-
-    #     # Check if all active players are all-in
-    #     all_all_in = all(p.is_all_in for p in active_players)
-        
-    #     if all_all_in:
+ 
+    #     # If all active players are all-in, advance to showdown
+    #     if all(p.is_all_in for p in active_players):
     #         print("* ALL PLAYERS ALL-IN -> ADVANCING ROUND")
-
-    #         #
-    #         # @TODO - Need to test this
-    #         # Should be into a function, also used by the post action flow
     #         while game.current_phase != "showdown":
-    #             await self.advance_hand_phase(game)
-    #         await self.start_hand(game)   
+    #             await self.find_next_phase(game)
+    #         await self.start_hand(game)
     #         return
-        
-    #         # Old code :
-    #         # await self.advance_hand_phase(game)
-    #         # return
-
-    #     # Find the index of the current turn
-    #     current_index = next((i for i, p in enumerate(active_players) if p.position == game.current_turn),-1,)
-
-    #     # Determine the next player who is not all-in
-    #     for p in range(len(active_players)):  # Loop ensures we don't get stuck in an infinite loop
-    #         if current_index == -1:
-    #             game.current_turn = active_players[0].position  # Default to first active player
+ 
+    #     # Determine the highest current bet among active players
+    #     highest_bet = max(p.current_bet for p in active_players)
+ 
+    #     # Determine the starting position
+    #     if start_position is None:
+    #         if any(p.position == game.current_turn for p in active_players):
+    #             start_position = game.current_turn
     #         else:
-    #             current_index = (current_index + 1) % len(active_players)
-    #             game.current_turn = active_players[current_index].position
-
-    #         # If the chosen player is not all-in, break loop
-    #         if not active_players[current_index].is_all_in:
-    #             break
-
-    #     # Save
+    #             start_position = min(p.position for p in active_players)
+ 
+    #     # The list is already sorted by position; find the index of the starting player
+    #     sorted_players = active_players
+    #     start_index = next((i for i, p in enumerate(sorted_players) if p.position == start_position), 0)
+ 
+    #     candidate = None
+    #     # Special handling when no bets have been placed in the new phase
+    #     if highest_bet == 0:
+    #         # Choose the first active player after start_position
+    #         for i in range(1, len(sorted_players) + 1):
+    #             potential = sorted_players[(start_index + i) % len(sorted_players)]
+    #             if not potential.is_all_in:
+    #                 candidate = potential
+    #                 break
+    #     else:
+    #         # Iterate through players in circular order to find the first player whose current bet is less than highest_bet
+    #         for i in range(1, len(sorted_players) + 1):
+    #             potential = sorted_players[(start_index + i) % len(sorted_players)]
+    #             if potential.current_bet < highest_bet and not potential.is_all_in:
+    #                 candidate = potential
+    #                 break
+ 
+    #     # If no candidate is found, default to the next player in order
+    #     if candidate is None:
+    #         candidate = sorted_players[(start_index + 1) % len(sorted_players)]
+ 
+    #     # Set the game turn to the chosen player's position
+    #     game.current_turn = candidate.position
     #     await sync_to_async(game.save)()
+    #     await self.broadcast_game_state(game)
 
-    #     # Broadcast
-    #     await self.broadcast_game_state(game) 
-
-
-    # # -----------------------------------------------------------------------
-    # async def get_first_player_after_dealer(self, game: Game) -> Player:
-    #     """
-    #     Returns the position of the first eligible player to act after the dealer.
- 
-    #     The eligible player must not have folded and must not be all-in.
-    #     The search wraps around if no player is found after the dealer's position.
- 
-    #     Args:
-    #         game (Game): The current game instance.
- 
-    #     Returns:
-    #         int: The position of the first eligible player after the dealer,
-    #              or None if no such player exists.
-    #     """
-
-    #     # Get list of players who haven't folded AND aren't all-in, sorted by position
-    #     active_non_allin_players = await sync_to_async(
-    #         lambda: list(
-    #             game.players.filter(has_folded=False, is_all_in=False).order_by("position")
-    #         ),
-    #         thread_sensitive=True,
-    #     )()
-    
-    #     if not active_non_allin_players:
-    #         return None  # No eligible players
-
-    #     # Find the dealer's position
-    #     dealer_position = game.dealer_position
-
-    #     # Find the first non-all-in player whose position is greater than dealer_position
-    #     for player in active_non_allin_players:
-    #         if player.position > dealer_position:
-    #             return player.position  # Found the first player after dealer
-
-    #     # If none found, wrap around to the first in the list
-    #     return active_non_allin_players[0].position
-    
-
-    
     async def next_player(self, game: Game, start_position: int = None) -> None:
         """
         Advances the turn to the next active player who has not folded and is not all-in.
-        Optionally starts the search from a given position (e.g., dealer + 1), replacing
-        the need for a separate 'get_first_player_after_dealer' function.
-
-        If all active players are all-in, the function skips to the showdown by auto-advancing
-        through remaining phases and starting a new hand. Otherwise, it rotates the turn to 
-        the next eligible player in table order.
-
+        For an ongoing betting round (when bets have been placed), it selects the first player (in circular order)
+        who has not yet matched the highest bet. For a new betting round (when all bets are reset to 0), it
+        uses the provided start_position or, if not provided, starts with the first active player immediately
+        to the left of the dealer.
+        
+        If all active players are all-in, the function advances to showdown.
+        
         Args:
             game (Game): The current game instance.
-            start_position (int, optional): The position to begin searching from. Defaults to current_turn.
-
+            start_position (int, optional): The position of the last acting player. If not provided,
+                                            for a new betting round, the first active player to the left of
+                                            the dealer is chosen.
+        
         Returns:
             None
         """
         print("* NEXT PLAYER")
 
-        active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False).order_by("position")),
-            thread_sensitive=True,
-        )()
-
+        # Get active players that have not folded, sorted by position.
+        active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False).order_by("position")))()
         if not active_players:
             return
 
-        # If all active players are all-in, move directly to showdown
+        # If all active players are all-in, advance to showdown.
         if all(p.is_all_in for p in active_players):
             print("* ALL PLAYERS ALL-IN -> ADVANCING ROUND")
             while game.current_phase != "showdown":
@@ -1036,25 +999,36 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.start_hand(game)
             return
 
-        # Determine the position to start from
-        if start_position is not None:
-            start_pos = start_position
-        elif game.current_turn is not None:
-            start_pos = game.current_turn
+        # Determine the highest current bet among active players.
+        highest_bet = max(p.current_bet for p in active_players)
+
+        # Use the provided start_position. If none is provided, then we are at the beginning of a new round:
+        # set start_position to the first active player to the left of the dealer.
+        if start_position is None:
+            candidate = next((p for p in active_players if p.position > game.dealer_position), active_players[0])
+            start_position = candidate.position
+
+        # Order of play will use the sorted active players.
+        sorted_players = active_players
+        start_index = next((i for i, p in enumerate(sorted_players) if p.position == start_position), 0)
+
+        # If bets have been placed (ongoing round), find the next player who hasn’t matched the highest bet.
+        # Otherwise (new betting round), simply choose the next active player in clockwise order.
+        if highest_bet > 0:
+            candidate = None
+            for i in range(1, len(sorted_players) + 1):
+                potential = sorted_players[(start_index + i) % len(sorted_players)]
+                if potential.current_bet < highest_bet and not potential.is_all_in:
+                    candidate = potential
+                    break
+            if candidate is None:
+                candidate = sorted_players[(start_index + 1) % len(sorted_players)]
         else:
-            # If current_turn is not yet set (e.g., first action on a new phase), start after dealer
-            dealer_position = game.dealer_position
-            sorted_positions = [p.position for p in active_players]
-            start_pos = next((p for p in sorted_positions if p > dealer_position), sorted_positions[0])
-        current_index = next((i for i, p in enumerate(active_players) if p.position == start_pos), -1)
+            # New betting round: action proceeds clockwise.
+            candidate = sorted_players[(start_index + 1) % len(sorted_players)]
 
-        for _ in range(len(active_players)):
-            current_index = (current_index + 1) % len(active_players)
-            candidate = active_players[current_index]
-            if not candidate.is_all_in:
-                game.current_turn = candidate.position
-                break
-
+        # Set the game turn to the chosen player's position.
+        game.current_turn = candidate.position
         await sync_to_async(game.save)()
         await self.broadcast_game_state(game)
    

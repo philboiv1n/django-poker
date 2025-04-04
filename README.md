@@ -47,18 +47,21 @@ From your project root directory, run:
 docker compose up --build
 ```
 
-6. Access the application
-Open you browser and visit http://localhost
-
-7. Connect to the container through Visual Studio Code
+6. Connect to the container through Visual Studio Code
 - Click the Remote Explorer icon (bottom-left corner)
 - Select "Attach to Running Container..."
 - Choose the container named /poker-django
 
+7. Start Tailwind development server in the container
+```
+cd /code/poker
+python manage.py tailwind start
+```
 
 8. Set up the database (SQLite)
-Inside the container, navigate to the project directory (/poker) and run:
+Inside the container, run:
 ```
+cd /code/poker
 python manage.py makemigrations
 python manage.py migrate
 ```
@@ -69,3 +72,6 @@ python manage.py createsuperuser
 ```
 Note: You won’t be able to play with this user unless you assign it to a profile.
 You can create new users from the admin panel, which will automatically generate a profile for them.
+
+10. Access the application
+Open you browser and visit http://localhost
