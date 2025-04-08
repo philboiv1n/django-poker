@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 from treys import Evaluator, Card
 from itertools import combinations
 from typing import List, Tuple
+from collections import defaultdict
 from .models import Game, Player, User
 
 # Connect to Redis
@@ -304,7 +305,7 @@ class GameConsumer(AsyncWebsocketConsumer):
                 game.dealer_position = self.next_player(game, player.position)
                # game.dealer_position = remaining_players[0].position
             if game.current_turn == player.position:
-                await self.next_player(game)
+                await self.next_player(game, game.current_turn)
 
         await sync_to_async(game.save)()
 
@@ -572,7 +573,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         # General all-in logic for 2+ players
         non_folded = [p for p in active_players if not p.has_folded]
-        # all_in_players = [p for p in non_folded if p.is_all_in]
         not_all_in_players = [p for p in non_folded if not p.is_all_in]
  
         # If everyone is all-in, auto-run remaining board
@@ -597,7 +597,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         if await self.is_phase_over(game):
             await self.end_phase(game)
         else:
-            await self.next_player(game)
+            await self.next_player(game, game.current_turn)
 
 
    
@@ -891,147 +891,79 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Save
         await sync_to_async(game.save)()
 
-   
-    
-    # async def next_player(self, game: Game, start_position: int = None) -> None:
-    #     """
-    #     Advances the turn to the next active player who has not folded and is not all-in.
-    #     Optionally starts the search from a given position (e.g., dealer + 1), replacing
-    #     the need for a separate 'get_first_player_after_dealer' function.
 
-    #     If all active players are all-in, the function skips to the showdown by auto-advancing
-    #     through remaining phases and starting a new hand. Otherwise, it rotates the turn to 
-    #     the next eligible player in table order.
 
-    #     Args:
-    #         game (Game): The current game instance.
-    #         start_position (int, optional): The position to begin searching from. Defaults to current_turn.
-
-    #     Returns:
-    #         None
-    #     """
-    #     print("* NEXT PLAYER")
- 
-    #     # Get active players that have not folded, sorted by position
-    #     active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False).order_by("position")))()
-    #     if not active_players:
-    #         return
- 
-    #     # If all active players are all-in, advance to showdown
-    #     if all(p.is_all_in for p in active_players):
-    #         print("* ALL PLAYERS ALL-IN -> ADVANCING ROUND")
-    #         while game.current_phase != "showdown":
-    #             await self.find_next_phase(game)
-    #         await self.start_hand(game)
-    #         return
- 
-    #     # Determine the highest current bet among active players
-    #     highest_bet = max(p.current_bet for p in active_players)
- 
-    #     # Determine the starting position
-    #     if start_position is None:
-    #         if any(p.position == game.current_turn for p in active_players):
-    #             start_position = game.current_turn
-    #         else:
-    #             start_position = min(p.position for p in active_players)
- 
-    #     # The list is already sorted by position; find the index of the starting player
-    #     sorted_players = active_players
-    #     start_index = next((i for i, p in enumerate(sorted_players) if p.position == start_position), 0)
- 
-    #     candidate = None
-    #     # Special handling when no bets have been placed in the new phase
-    #     if highest_bet == 0:
-    #         # Choose the first active player after start_position
-    #         for i in range(1, len(sorted_players) + 1):
-    #             potential = sorted_players[(start_index + i) % len(sorted_players)]
-    #             if not potential.is_all_in:
-    #                 candidate = potential
-    #                 break
-    #     else:
-    #         # Iterate through players in circular order to find the first player whose current bet is less than highest_bet
-    #         for i in range(1, len(sorted_players) + 1):
-    #             potential = sorted_players[(start_index + i) % len(sorted_players)]
-    #             if potential.current_bet < highest_bet and not potential.is_all_in:
-    #                 candidate = potential
-    #                 break
- 
-    #     # If no candidate is found, default to the next player in order
-    #     if candidate is None:
-    #         candidate = sorted_players[(start_index + 1) % len(sorted_players)]
- 
-    #     # Set the game turn to the chosen player's position
-    #     game.current_turn = candidate.position
-    #     await sync_to_async(game.save)()
-    #     await self.broadcast_game_state(game)
-
-    async def next_player(self, game: Game, start_position: int = None) -> None:
+    async def next_player(self, game: Game, start_position: int) -> int:
         """
-        Advances the turn to the next active player who has not folded and is not all-in.
-        For an ongoing betting round (when bets have been placed), it selects the first player (in circular order)
-        who has not yet matched the highest bet. For a new betting round (when all bets are reset to 0), it
-        uses the provided start_position or, if not provided, starts with the first active player immediately
-        to the left of the dealer.
+        Advances the turn to the next active player (i.e. one who has not folded and is not all-in)
+        based on the provided start_position (a seat number). It uses a circular ordering of all players
+        who are eligible to act. If the full circle is completed (i.e. the candidate to act
+        would be the same as the provided start_position), it returns None to signal that all players have acted,
+        and the betting phase should end.
         
-        If all active players are all-in, the function advances to showdown.
+        In an ongoing betting round (highest_bet > 0), it selects the first player in circular order
+        who either hasn't acted this round or hasn't matched the highest bet.
+        In a new betting round (highest_bet == 0), it selects the first active player in the circular order.
         
         Args:
             game (Game): The current game instance.
-            start_position (int, optional): The position of the last acting player. If not provided,
-                                            for a new betting round, the first active player to the left of
-                                            the dealer is chosen.
+            start_position (int): The seat number of the last acting player.
         
         Returns:
-            None
+            int: The seat number of the next active player, or None if a full circle has been completed.
         """
         print("* NEXT PLAYER")
+        print("*** Provided start_position (seat):", start_position)
 
-        # Get active players that have not folded, sorted by position.
-        active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False).order_by("position")))()
+        # Get active players: those who have not folded and are not all-in.
+        active_players = await sync_to_async(
+            lambda: list(game.players.filter(has_folded=False, is_all_in=False).order_by("position"))
+        )()
         if not active_players:
-            return
-
-        # If all active players are all-in, advance to showdown.
-        if all(p.is_all_in for p in active_players):
-            print("* ALL PLAYERS ALL-IN -> ADVANCING ROUND")
+            print("*** No active players; advancing to showdown.")
             while game.current_phase != "showdown":
                 await self.find_next_phase(game)
             await self.start_hand(game)
-            return
+            return None
 
         # Determine the highest current bet among active players.
         highest_bet = max(p.current_bet for p in active_players)
+        print("*** Highest bet among active players:", highest_bet)
 
-        # Use the provided start_position. If none is provided, then we are at the beginning of a new round:
-        # set start_position to the first active player to the left of the dealer.
-        if start_position is None:
-            candidate = next((p for p in active_players if p.position > game.dealer_position), active_players[0])
-            start_position = candidate.position
+        # Build the circular order of active players based on their seat numbers.
+        # That is, all players with a seat number greater than start_position, followed by those with <= start_position.
+        players_after = [p for p in active_players if p.position > start_position]
+        players_before_or_equal = [p for p in active_players if p.position <= start_position]
+        circular_order = players_after + players_before_or_equal
+        print("*** Circular order of active players (by seat):", [p.position for p in circular_order])
 
-        # Order of play will use the sorted active players.
-        sorted_players = active_players
-        start_index = next((i for i, p in enumerate(sorted_players) if p.position == start_position), 0)
-
-        # If bets have been placed (ongoing round), find the next player who hasn’t matched the highest bet.
-        # Otherwise (new betting round), simply choose the next active player in clockwise order.
+        candidate = None
         if highest_bet > 0:
-            candidate = None
-            for i in range(1, len(sorted_players) + 1):
-                potential = sorted_players[(start_index + i) % len(sorted_players)]
-                if potential.current_bet < highest_bet and not potential.is_all_in:
-                    candidate = potential
+            # Ongoing betting round: choose the first player (in circular order)
+            # who either hasn't acted yet this round or hasn't matched the highest bet.
+            for p in circular_order:
+                if p.current_bet < highest_bet or not p.has_acted_this_round:
+                    candidate = p
                     break
-            if candidate is None:
-                candidate = sorted_players[(start_index + 1) % len(sorted_players)]
         else:
-            # New betting round: action proceeds clockwise.
-            candidate = sorted_players[(start_index + 1) % len(sorted_players)]
+            # New betting round (no bets have been placed): choose the first active player in the circular order.
+            candidate = circular_order[0]
 
-        # Set the game turn to the chosen player's position.
+        # If the candidate is the same as the provided start_position, then the full circle is complete.
+        if candidate.position == start_position:
+            print("*** Full circle complete; betting round over.")
+            return None
+
+        print("*** Next candidate seat:", candidate.position)
+        # Update game state.
         game.current_turn = candidate.position
         await sync_to_async(game.save)()
         await self.broadcast_game_state(game)
-   
+        return game.current_turn
+
+
+
+
     #
     #
     #
@@ -1083,14 +1015,6 @@ class GameConsumer(AsyncWebsocketConsumer):
         all_players_checked = all(p.has_checked for p in active_players if not p.has_folded)
         all_players_matched_bet = all(p.current_bet == highest_bet for p in active_players if not p.has_folded)
 
-        print("** == PHASE CHECK START ==")
-        print(f"** Phase: {game.current_phase}")
-        print(f"** Highest bet: {highest_bet}")
-        for p in active_players:
-            print(f"** Player {p.position} - Folded: {p.has_folded}, Bet: {p.current_bet}, Acted: {p.has_acted_this_round}")
-        print(f"** All matched bet: {all_players_matched_bet}")
-        print(f"** All checked: {all_players_checked}")
-        print("** == PHASE CHECK END ==")
 
         # If it's preflop and the big blind hasn't acted yet
         if game.current_phase == "preflop":
@@ -1177,12 +1101,8 @@ class GameConsumer(AsyncWebsocketConsumer):
         
         # else move current player after the dealer
         else:
-           # game.current_turn = await self.get_first_player_after_dealer(game)
             await self.next_player(game, game.dealer_position)
-          
-          #  game.current_turn = await self.next_player(game, game.dealer_position)
-          #  await sync_to_async(game.save)()
-          #  await self.broadcast_game_state(game) 
+
 
    
     # -----------------------------------------------------------------------
@@ -1311,35 +1231,58 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Sort from best to worst (lowest treys score = best hand)
         player_hands.sort(key=lambda x: x[0])
 
+        winnings = defaultdict(lambda: {
+            "chips_won": 0,
+            "best_score": None,
+            "best_rank": "",
+            "best_five": None,
+        })
+        
+
         # Distribute side pots
         for pot in side_pots:
             pot_amount = pot["amount"]
             eligible_ids = pot["eligible_ids"]
 
             # Filter out the players who are eligible for this pot
-            in_contest = [(s, d, b5, p) for (s, d, b5, p) in player_hands if p.id in eligible_ids]
+            in_contest = [(s, r, b5, p) for (s, r, b5, p) in player_hands if p.id in eligible_ids]
             if not in_contest:
                 continue
 
             best_score = in_contest[0][0]
-            winning_records = [(s, d, b5, plyr) for (s, d, b5, plyr) in in_contest if s == best_score]
+            winners = [(s, r, b5, p) for (s, r, b5, p) in in_contest if s == best_score]
+            share = pot_amount // len(winners)
 
-            share = pot_amount // len(winning_records)
+            # @TODO - Modify this to broadcast each player only once...
           
-            for (win_score, win_rank, win_5, win_player) in winning_records:
+            for (win_score, win_rank, win_5, win_player) in winners:
+                winnings[win_player]["chips_won"] += share
+                winnings[win_player]["best_score"] = score
+                winnings[win_player]["best_rank"] = rank
+                winnings[win_player]["best_five"] = win_5
                 win_player.chips += share
                 await sync_to_async(win_player.save)()
+
                 
-                username = await sync_to_async(lambda: win_player.user.username)()
-                pretty_str = Card.ints_to_pretty_str(win_5)
+                # username = await sync_to_async(lambda: win_player.user.username)()
+                # pretty_str = Card.ints_to_pretty_str(win_5)
                 
-                # Broadcast
-                await self.broadcast_messages(
-                    f"🏆 {username} wins {share} with {pretty_str.replace(",", "")} ({win_rank})"
-                )
+                # # Broadcast
+                # await self.broadcast_messages(
+                #     f"🏆 {username} wins {share} with {pretty_str.replace(",", "")} ({win_rank})"
+                # )
 
         
+        # Now broadcast once per winning player
+        for win_player, info in winnings.items():
+            username = await sync_to_async(lambda: win_player.user.username)()
+            best_five_str = Card.ints_to_pretty_str(info["best_five"]).replace(",", "")
+            rank_desc = info["best_rank"]
+            total_chips = info["chips_won"]
 
+            await self.broadcast_messages(
+                f"🏆 {username} wins {total_chips} with {best_five_str} ({rank_desc})"
+            )
     #
     #
     #

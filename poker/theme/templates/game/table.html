@@ -15,11 +15,11 @@ Includes:
 Game information
 ---------------------------------------------------------------------------->
 
-<div class="md:w-3/5 lg:w-1/2 p-4 mx-auto">
+<div class="md:w-3/5 lg:w-1/2 p-2 mx-auto">
   <h1 class="text-xl md:text-2xl my-2">{{ game.name }}</h1>
   <div class="text-sm">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.</div>
   <div class="text-sm">Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}</div>
-  <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span></div>
+  <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span> (<span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span>)</div>
   
   <!-- Join / Leave Table Button  -->
   <button id="join-button" onclick="sendJoin()" 
@@ -28,10 +28,11 @@ Game information
     class="my-4 p-2 bg-red-900 hover:bg-red-800 text-white rounded-lg text-center shadow-xl">Leave Table</button>
 </div>
 
+
 <!---------------------------------------------------------------------------
 Players List
 ---------------------------------------------------------------------------->
-<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full my-4 p-4"></ul>
+<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full p-4 mb-2"></ul>
 
 
 <!---------------------------------------------------------------------------
@@ -39,17 +40,26 @@ Community cards
 ---------------------------------------------------------------------------->
 <span id="community-cards" style="display: none;">{{ game.community_cards }}</span>
 
-<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
-  <h2 class="text-xl"><span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span></h2>
+<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 px-2 pt-2 pb-6 bg-emerald-800  mb-6 mx-auto rounded-[30px]">
+ 
+  <div class="text-4xl text-emerald-700">♦︎&nbsp;♣︎&nbsp;♥︎&nbsp;♠︎</div>
 
-  <div class="flex flex-col my-6">
-    <div class="flex gap-2" id="communityCardsContainer"></div>
+  <div class="min-h-[48px] flex items-center justify-center">
+    <div id="main-message"></div>
+  </div>
+
+  <div class="flex gap-2 my-4" id="communityCardsContainer">
+    <div class="card-placeholder" data-index="0"></div>
+    <div class="card-placeholder" data-index="1"></div>
+    <div class="card-placeholder" data-index="2"></div>
+    <div class="card-placeholder" data-index="3"></div>
+    <div class="card-placeholder" data-index="4"></div>
   </div>
 
   <div>
     Total Pot : <span id="current-pot">
      <script>
-      pot = {{ game.get_pot}};
+      pot = {{ game.get_pot }};
       document.write(pot.toLocaleString('fr-CA'));  
      </script>
     </span>
@@ -58,13 +68,16 @@ Community cards
 </div>
 
 
-  <!---------------------------------------------------------------------------
-  Player cards and actions
-  ---------------------------------------------------------------------------->
-<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-lg mb-8 mx-auto">
+<!---------------------------------------------------------------------------
+Player cards and actions
+---------------------------------------------------------------------------->
+<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 p-4 bg-emerald-800 rounded-[30px] mb-8 mx-auto">
 
-    <div class="text-l">Your cards</div>
-    <div class="flex gap-2 pt-2 pb-6" id="hole-cards"></div>
+    <div class="text-lg text-emerald-600">Your cards</div>
+    <div class="flex gap-2 pt-2 pb-6" id="hole-cards">
+      <div class="card-placeholder" data-index="0"></div>
+      <div class="card-placeholder" data-index="1"></div>
+    </div>
 
     <div class="flex gap-4">
         <button onclick="sendAction('fold')" class="bg-gradient-to-r from-red-600 to-red-500 text-white px-4 py-2 rounded shadow-xl action-button">Fold</button>
@@ -126,6 +139,7 @@ Javascript
   let currentPhase = "{{ game.current_phase }}";
   let gameStatus = "{{ game.status }}";
   let isPlayer = {{ is_player|yesno:"true,false" }};
+  let displayTime = 1000;
 
   // Global queue to store incoming messages
   let messageQueue = [];
@@ -184,12 +198,12 @@ Javascript
 
         // Update community cards
         if (data.community_cards !== undefined) {
-          displayCards(data.community_cards, "communityCardsContainer");
+          displayCards(data.community_cards, "communityCardsContainer", 5);
         }
 
         // Display hole cards if available
         if (data.hole_cards && data.hole_cards.length > 0) {
-          displayCards(data.hole_cards, "hole-cards");
+          displayCards(data.hole_cards, "hole-cards", 2);
 
         }
 
@@ -300,42 +314,79 @@ Javascript
 
 
 
+  // function displayCards(cards, containerId) {
+  //   const container = document.getElementById(containerId);
+  //   container.innerHTML = ""; // Clear previous cards
+
+  //   cards.forEach(card => {
+  //       let rank, suit, icon, color = "black";
+      
+  //       rank = card[0]; // A, K, Q, J, 9, etc.
+  //       suit = card[1]; // d, c, h, s
+  //       icon = "♠︎";
+
+  //       if (suit == "d") {
+  //         icon = "♦︎";
+  //         color = "red";
+  //       } else if (suit == "c") {
+  //         icon = "♣︎";
+  //       } else if (suit == "h") {
+  //         icon = "♥︎";
+  //         color = "red";
+  //       }
+
+  //       if (rank == "T") {
+  //         rank = "10";
+  //       }
+
+  //       const div = document.createElement("div");
+  //       div.className = `card ${color} shadow-xl`;
+  //       div.innerHTML = `${rank}${icon}`;
+  //       container.appendChild(div);
+  //   });
+  // }
+
+  
+
   /* -----------------------------------------------------------------------
   * Renders a list of cards into a container.
   * @param {Array<string>} cards - List of card strings (e.g., ["As", "Kd"]).
   * @param {string} containerId - DOM container ID.
+  * @param {int} maximum number of cards to display
   * ----------------------------------------------------------------------*/
-  function displayCards(cards, containerId) {
-    const container = document.getElementById(containerId);
-    container.innerHTML = ""; // Clear previous cards
+  function displayCards(cards, containerId, maxCards = 5) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
 
-    cards.forEach(card => {
-        let rank, suit, icon, color = "black";
-      
-        rank = card[0]; // A, K, Q, J, 9, etc.
-        suit = card[1]; // d, c, h, s
-        icon = "♠︎";
+  // Loop over the 5 slots
+  for (let i = 0; i < maxCards; i++) {
+    const slot = container.querySelector(`[data-index="${i}"]`);
+    if (!slot) continue;
 
-        if (suit == "d") {
-          icon = "♦︎";
-          color = "red";
-        } else if (suit == "c") {
-          icon = "♣︎";
-        } else if (suit == "h") {
-          icon = "♥︎";
-          color = "red";
-        }
+    if (cards[i]) {
+      const rank = cards[i][0] === "T" ? "10" : cards[i][0];
+      const suit = cards[i][1];
+      let icon = "♠︎";
+      let color = "text-black";
 
-        if (rank == "T") {
-          rank = "10";
-        }
+      if (suit === "h") {
+        icon = "♥︎";
+        color = "text-red-500";
+      } else if (suit === "d") {
+        icon = "♦︎";
+        color = "text-red-500";
+      } else if (suit === "c") {
+        icon = "♣︎";
+      }
 
-        const div = document.createElement("div");
-        div.className = `card ${color} shadow-xl`;
-        div.innerHTML = `${rank}${icon}`;
-        container.appendChild(div);
-    });
+      slot.className = `card ${color} shadow-xl transition duration-600 transform hover:scale-105`;
+      slot.innerText = `${rank}${icon}`;
+    } else {
+      slot.className = "card-placeholder";
+      slot.innerText = "";
+    }
   }
+}
 
 
   /* -----------------------------------------------------------------------
@@ -349,7 +400,7 @@ Javascript
           try {
               // Convert raw Django output to a clean array format
               let communityCardsArray = communityCardsText.replace(/[\[\]']/g, "").split(", ");
-              displayCards(communityCardsArray, "communityCardsContainer");
+              displayCards(communityCardsArray, "communityCardsContainer", 5);
           } catch (error) {
               console.error("Error parsing community cards:", error);
           }
@@ -483,15 +534,8 @@ Javascript
     // In case the container doesn't exist or has changed
     if (!playerList) return;
 
-    // Testing front-end
-    // testObj = players[players.length -1];
-    // for (let i = 0; i < 7; i++) {
-    //   players.push({ ...testObj });
-    // }
 
-
-    // We re-apply the flex + layout classes
-    playerList.setAttribute("class","flex flex-wrap justify-center gap-4 w-full my-4 p-4");
+    // playerList.setAttribute("class","flex flex-wrap justify-center gap-4 w-full my-4 p-4");
 
     // Clear existing
     playerList.innerHTML = "";
@@ -500,7 +544,7 @@ Javascript
     players.forEach(player => {
       const li = document.createElement("li");
       li.setAttribute("data-position", player.position);
-      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg w-36 sm:w-1/3 lg:w-[18%] shadow-lg");
+      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg size-40 shadow-lg");
       
       // Dealer marker
       const dealerMarkup = player.is_dealer
@@ -563,7 +607,7 @@ Javascript
   * @param {string} type - The type of message ("error" displays red background, others use gray).
   * @param {number} duration - How long the message stays visible in milliseconds (default is 1000ms).
   * ----------------------------------------------------------------------*/
-  function showTemporaryMessage(message, type, duration = 1000) {
+  function showTemporaryMessage(message, type, duration = displayTime) {
         // Get overlay elements
         const overlay = document.getElementById('overlay');
         const overlayContent = document.getElementById('overlayContent');
@@ -588,6 +632,21 @@ Javascript
         }, duration);
   }
 
+  function showTemporaryMessageTop(message, duration = displayTime) {
+        // Get element
+        const msg = document.getElementById('main-message');
+
+        // Set message text
+        msg.textContent = message;
+
+        // Show message
+        msg.classList.remove('hidden');
+  
+        // Hide overlay after specified duration
+        setTimeout(() => {
+           msg.classList.add('hidden');
+        }, duration);
+  }
 
   /* -----------------------------------------------------------------------
   * 
@@ -617,12 +676,12 @@ Javascript
     // Otherwise, take the next message from the front of the queue
     const msg = messageQueue.shift();
 
-    // Show it on the overlay for 1 second
-    showTemporaryMessage(msg, "info", 1000); // your existing overlay function
+    // Show it on the table
+    showTemporaryMessageTop(msg, displayTime); // your existing overlay function
 
     // After 1 second, append it to the #action-messages
     setTimeout(() => {
-      const messagesList = document.getElementById("action-messages");
+     const messagesList = document.getElementById("action-messages");
       
       // Remove the oldest item if we already have 10 (or any other limit you choose)
       const maxItems = 10;
@@ -639,7 +698,7 @@ Javascript
 
       // Then move on to the next message
       showNextMessage();
-    }, 1000);
+    }, displayTime);
 }
 
 
