@@ -16,10 +16,10 @@ from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, redirect, render
 from django.contrib import messages
-# from django.conf import settings
 
 from .forms import ProfileForm
 from .models import Game
+from .utils import can_user_do_action
 
 
 @login_required
@@ -178,6 +178,8 @@ def table(request, game_id):
             "avatar_color": p.user.profile.avatar_color,
             "current_bet": p.current_bet,
             "is_next_to_play": p.position == current_turn_player.position,
+            "user_can_check": can_user_do_action(game, p, "check"),
+            "user_can_call": can_user_do_action(game, p, "call"),
         })
 
     players_json = json.dumps(players_data)
@@ -189,7 +191,6 @@ def table(request, game_id):
             "game": game,
             "players": players,
             "players_json": players_json,
-            # "is_player": "true" if is_player else "false",
             "is_player": is_player,
             "current_turn_username": current_turn_username,
             "last_messages_json": json.dumps(clean_messages),

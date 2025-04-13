@@ -176,46 +176,29 @@ class Game(models.Model):
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
 
-    def get_pot(self):
+    def get_pot(self) -> int:
         """
         Returns the total amount of chips across all players.
         """
         players = list(self.players.order_by("position"))
         return sum(player.total_bet for player in players)
        
-            
-
-    def get_next_position(self):
+    def burn_card(self) -> None:
         """
-        Returns the next available seat position for a new player.
+        Burns (removes) the top card from the deck.
+    
+        This is used in Texas Hold'em to discard a card before dealing
+        community cards (Flop, Turn, River) to prevent cheating and ensure fairness.
+    
+        Args:
+            game (Game): The current game instance.
+    
+        Returns:
+            None
         """
-        existing_positions = list(self.players.values_list("position", flat=True))
-        for pos in range(self.max_players):  # Find the first empty position
-            if pos not in existing_positions:
-                return pos
-        return None  # No available positions
-
-    def get_next_turn_after(self, position):
-        """
-        Returns the next player's position after the given position.
-        Ensures a valid player is always assigned.
-        """
-        players = list(self.players.order_by("position"))
-
-        if not players:
-            return None  # No players left
-
-        # Extract player positions into a list
-        positions = [p.position for p in players]
-
-        if position not in positions:
-            return positions[0]
-
-        # Find the index of the current position and get the next player
-        current_index = positions.index(position)
-        next_index = (current_index + 1) % len(positions)  # Loop back if needed
-
-        return positions[next_index]
+        if self.deck:
+            self.deck.pop(0)
+    
 
     def __str__(self):
         """
@@ -285,18 +268,6 @@ class Player(models.Model):
         """Clears hole cards at the end of the round."""
         self.hole_cards = []
         self.save()
-
-    def save(self, *args, **kwargs):
-        """
-        Automatically assigns the next available position when a player joins a game.
-        """
-        if self.position is None:  # Only assign position if not already set
-            self.position = self.game.get_next_position()
-        super().save(*args, **kwargs)
-
-    def is_turn(self):
-        """Returns True if it's this player's turn to act."""
-        return self.game.current_turn == self.position
 
     def __str__(self):
         """

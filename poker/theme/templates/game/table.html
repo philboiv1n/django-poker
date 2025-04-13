@@ -14,7 +14,6 @@ Includes:
 <!---------------------------------------------------------------------------
 Game information
 ---------------------------------------------------------------------------->
-
 <div class="md:w-3/5 lg:w-1/2 p-2 mx-auto">
   <h1 class="text-xl md:text-2xl my-2">{{ game.name }}</h1>
   <div class="text-sm">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.</div>
@@ -32,7 +31,7 @@ Game information
 <!---------------------------------------------------------------------------
 Players List
 ---------------------------------------------------------------------------->
-<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full p-4 mb-2"></ul>
+<ul id="players-list" class="flex flex-wrap justify-center gap-4 w-full mb-6"></ul>
 
 
 <!---------------------------------------------------------------------------
@@ -81,8 +80,8 @@ Player cards and actions
 
     <div class="flex gap-4">
         <button onclick="sendAction('fold')" class="bg-gradient-to-r from-red-600 to-red-500 text-white px-4 py-2 rounded shadow-xl action-button">Fold</button>
-        <button onclick="sendAction('check')" class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-4 py-2 rounded shadow-xl action-button">Check</button>
-        <button onclick="sendAction('call')" class="bg-gradient-to-r from-green-600 to-green-500 text-white px-4 py-2 rounded shadow-xl action-button">Call</button>
+        <button id="check-button" onclick="sendAction('check')" class="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-4 py-2 rounded shadow-xl action-button">Check</button>
+        <button id="call-button" onclick="sendAction('call')" class="bg-gradient-to-r from-green-600 to-green-500 text-white px-4 py-2 rounded shadow-xl action-button">Call</button>
         <!-- <button class="bg-gradient-to-r from-purple-600 to-purple-500 text-white px-4 py-2 rounded shadow-xl action-button">All-In</button> -->
     </div>
     <div class="flex gap-4 mt-4">
@@ -177,7 +176,8 @@ Javascript
           gameStatus = data.game_status;
           currentUsername = data.current_username;
           currentPhase = data.current_phase;
-          buttonsStateMachine(gameStatus, currentPhase, currentUsername, username, isPlayer);
+          players = data.players;
+          buttonsStateMachine(gameStatus, currentPhase, currentUsername, username, isPlayer, players);
         }
 
          // Update game status
@@ -313,41 +313,6 @@ Javascript
   }
 
 
-
-  // function displayCards(cards, containerId) {
-  //   const container = document.getElementById(containerId);
-  //   container.innerHTML = ""; // Clear previous cards
-
-  //   cards.forEach(card => {
-  //       let rank, suit, icon, color = "black";
-      
-  //       rank = card[0]; // A, K, Q, J, 9, etc.
-  //       suit = card[1]; // d, c, h, s
-  //       icon = "♠︎";
-
-  //       if (suit == "d") {
-  //         icon = "♦︎";
-  //         color = "red";
-  //       } else if (suit == "c") {
-  //         icon = "♣︎";
-  //       } else if (suit == "h") {
-  //         icon = "♥︎";
-  //         color = "red";
-  //       }
-
-  //       if (rank == "T") {
-  //         rank = "10";
-  //       }
-
-  //       const div = document.createElement("div");
-  //       div.className = `card ${color} shadow-xl`;
-  //       div.innerHTML = `${rank}${icon}`;
-  //       container.appendChild(div);
-  //   });
-  // }
-
-  
-
   /* -----------------------------------------------------------------------
   * Renders a list of cards into a container.
   * @param {Array<string>} cards - List of card strings (e.g., ["As", "Kd"]).
@@ -355,38 +320,38 @@ Javascript
   * @param {int} maximum number of cards to display
   * ----------------------------------------------------------------------*/
   function displayCards(cards, containerId, maxCards = 5) {
-  const container = document.getElementById(containerId);
-  if (!container) return;
+    const container = document.getElementById(containerId);
+    if (!container) return;
 
-  // Loop over the 5 slots
-  for (let i = 0; i < maxCards; i++) {
-    const slot = container.querySelector(`[data-index="${i}"]`);
-    if (!slot) continue;
+    // Loop over the 5 slots
+    for (let i = 0; i < maxCards; i++) {
+      const slot = container.querySelector(`[data-index="${i}"]`);
+      if (!slot) continue;
 
-    if (cards[i]) {
-      const rank = cards[i][0] === "T" ? "10" : cards[i][0];
-      const suit = cards[i][1];
-      let icon = "♠︎";
-      let color = "text-black";
+      if (cards[i]) {
+        const rank = cards[i][0] === "T" ? "10" : cards[i][0];
+        const suit = cards[i][1];
+        let icon = "♠︎";
+        let color = "text-black";
 
-      if (suit === "h") {
-        icon = "♥︎";
-        color = "text-red-500";
-      } else if (suit === "d") {
-        icon = "♦︎";
-        color = "text-red-500";
-      } else if (suit === "c") {
-        icon = "♣︎";
+        if (suit === "h") {
+          icon = "♥︎";
+          color = "text-red-500";
+        } else if (suit === "d") {
+          icon = "♦︎";
+          color = "text-red-500";
+        } else if (suit === "c") {
+          icon = "♣︎";
+        }
+
+        slot.className = `card ${color} shadow-xl transition duration-600 transform hover:scale-105`;
+        slot.innerText = `${rank}${icon}`;
+      } else {
+        slot.className = "card-placeholder";
+        slot.innerText = "";
       }
-
-      slot.className = `card ${color} shadow-xl transition duration-600 transform hover:scale-105`;
-      slot.innerText = `${rank}${icon}`;
-    } else {
-      slot.className = "card-placeholder";
-      slot.innerText = "";
     }
   }
-}
 
 
   /* -----------------------------------------------------------------------
@@ -413,18 +378,24 @@ Javascript
   * Enables/disables action buttons based on game state.
   * @param {boolean} status - True to enable, false to disable.
   * ----------------------------------------------------------------------*/
-  function enable_action_buttons(status) {
-    let actionButtons = document.querySelectorAll(".action-button");
-    actionButtons.forEach(button => {
-      if (status) {
-        button.disabled = false;  // Enable for current turn user
-        button.classList.add("bg-gradient-to-r");
-        button.classList.remove("disabled:bg-gray-600", "disabled:text-gray-400");
-      } else {
-        button.disabled = true;  // Disable for current turn user
-        button.classList.add("disabled:bg-gray-600", "disabled:text-gray-400");
-        button.classList.remove("bg-gradient-to-r");
+  function enable_action_buttons(status, canCheck = true, canCall = true) {
+    const buttons = document.querySelectorAll(".action-button");
+
+    buttons.forEach(button => {
+      let shouldEnable = status;
+
+      if (button.id === "check-button" && !canCheck) {
+        shouldEnable = false;
       }
+
+      if (button.id === "call-button" && !canCall) {
+        shouldEnable = false;
+      }
+
+      button.disabled = !shouldEnable;
+      button.classList.toggle("bg-gradient-to-r", shouldEnable);
+      button.classList.toggle("disabled:bg-gray-600", !shouldEnable);
+      button.classList.toggle("disabled:text-gray-400", !shouldEnable);
     });
   }
 
@@ -471,21 +442,22 @@ Javascript
   * @param {string} currentPhase - Current game phase
   * @param {string} currentTurnUsername - Who is currently acting
   * @param {string} username - The current user's name
-  * @param {string} isPlayer - "true" if user is seated at table
+  * @param {bool} isPlayer - "true" if user is seated at table
+  * @param {json} playersDate - players information in json format
   * ----------------------------------------------------------------------*/
   function buttonsStateMachine(
     gameStatus,
     currentPhase,
     currentTurnUsername,
     username,
-    isPlayer
+    isPlayer,
+    playersData
   ) {
-   
+    
     // 1) disable everything by default
     enable_action_buttons(false);
     enable_join_button(false);
     enable_leave_button(false);
-
    
     // 2) if the game is finished => any seated player can leave
     if (gameStatus === "finished") {
@@ -515,7 +487,8 @@ Javascript
     if (gameStatus === "active") {
       if (isPlayer === true) {
         if (currentTurnUsername === username) {
-          enable_action_buttons(true);
+          nextToPlay = playersData.find(p => p.is_next_to_play === true);
+          enable_action_buttons(true, nextToPlay.user_can_check, nextToPlay.user_can_call);
           enable_leave_button(true);
         }
       }
@@ -544,7 +517,7 @@ Javascript
     players.forEach(player => {
       const li = document.createElement("li");
       li.setAttribute("data-position", player.position);
-      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg size-40 shadow-lg");
+      li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg size-36 shadow-lg");
       
       // Dealer marker
       const dealerMarkup = player.is_dealer
@@ -707,17 +680,17 @@ Javascript
   * Initializes UI state and renders players/community cards on page load.
   * ----------------------------------------------------------------------*/
   window.onload = function() {
-
-    // Update buttons state
-    buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer);
-   
-    // Load initial community cards
-    loadInitialCommunityCards();
    
     // Load player's list
     let playersData = JSON.parse('{{ players_json|safe }}');
     renderPlayersList(playersData, "players-list");
 
+    // Update buttons state
+    // buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer);
+    buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer, playersData);
+   
+    // Load initial community cards
+    loadInitialCommunityCards();
 
     // Display messages
     const lastMessages = JSON.parse('{{ last_messages_json|safe }}');
