@@ -10,7 +10,7 @@ from treys import Card
 # from typing import List, Tuple
 from collections import defaultdict
 from .models import Game, Player, User
-from .utils import get_next_phase, find_best_five_cards, convert_treys_str_int_pretty, can_user_do_action
+from .utils import get_next_phase, find_best_five_cards, convert_treys_str_int_pretty, can_user_do_action, create_deck
 
 # Connect to Redis
 redis_client = redis.Redis(
@@ -305,10 +305,6 @@ class GameConsumer(AsyncWebsocketConsumer):
             p.position = new_position
             await sync_to_async(p.save)()
 
-        # remaining_players = await sync_to_async(
-        #     lambda: list(game.players.order_by("position"))
-        # )()
-
         # Update dealer_position and current_turn if needed.
         # For example, if the leaving player was the dealer or the current turn,
         # we reassign these roles to the first player.
@@ -317,10 +313,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.reset_hand(game)
         else:
             if game.dealer_position == player.position:
-                # game.dealer_position = await self.next_player(game, player.position)
                 game.dealer_position = remaining_players[0].position
             if game.current_turn == player.position:
-               # await self.next_player(game, game.current_turn)
                game.current_turn = remaining_players[0].position
 
         await sync_to_async(game.save)()
@@ -401,11 +395,11 @@ class GameConsumer(AsyncWebsocketConsumer):
         print("* HANDLE CHECK")
 
         can_check = await sync_to_async(
-           # lambda: user_can_check(game, player)
             lambda: can_user_do_action(game, player, "check")
         )()
 
         if can_check == True :
+            print("YES CAN CHECK")
             # Mark the player as checked
             player.has_checked = True
             player.has_acted_this_round = True
@@ -581,9 +575,6 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         print("* POST ACTION FLOW")
 
-        # @TODO
-        # This function could probably be optimized...
-
         active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True)()
 
         # General all-in logic for 2+ players
@@ -602,7 +593,6 @@ class GameConsumer(AsyncWebsocketConsumer):
             max_bet = max(p.total_bet for p in non_folded)
             remaining = not_all_in_players[0]
             if remaining.total_bet >= max_bet:
-               # await self.end_phase(game)
                 while game.current_phase != "showdown":
                     await self.goto_next_phase(game)
                 await self.start_hand(game)
@@ -696,9 +686,9 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.assign_blinds(game)
 
         # Create a deck (52 cards)
-        suits = ["s", "c", "h", "d"]  # ["♠", "♣", "♥", "♦"]
-        ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
-        deck = [f"{rank}{suit}" for suit in suits for rank in ranks]
+        deck = await sync_to_async(
+            lambda: create_deck()
+        )()
 
         # Shuffle and save the deck
         random.shuffle(deck)
@@ -812,10 +802,10 @@ class GameConsumer(AsyncWebsocketConsumer):
         await sync_to_async(game.save)()
 
          # Broadcast
-        new_dealer_username = await sync_to_async(
-            lambda: new_dealer.user.username, thread_sensitive=True
-        )()
-        await self.broadcast_messages(f"⭐️ New dealer : {new_dealer_username}.")
+        # new_dealer_username = await sync_to_async(
+        #     lambda: new_dealer.user.username, thread_sensitive=True
+        # )()
+        # await self.broadcast_messages(f"⭐️ New dealer : {new_dealer_username}.")
 
 
     # -----------------------------------------------------------------------
@@ -896,10 +886,10 @@ class GameConsumer(AsyncWebsocketConsumer):
         await sync_to_async(big_blind_player.save)()
 
         # Broadcast
-        sb_username = await sync_to_async(lambda: small_blind_player.user.username)()
-        bb_username = await sync_to_async(lambda: big_blind_player.user.username)()
+        # sb_username = await sync_to_async(lambda: small_blind_player.user.username)()
+        # bb_username = await sync_to_async(lambda: big_blind_player.user.username)()
 
-        await self.broadcast_messages(f"✨ {sb_username} & {bb_username} post blinds.")
+        # await self.broadcast_messages(f"✨ {sb_username} & {bb_username} post blinds.")
 
         # Save
         await sync_to_async(game.save)()
@@ -1052,12 +1042,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         else:
             phase_over = False
 
-        # print("* Checking if phase is over...")
-        # for p in active_players:
-        #     print(f"Player {p.position}: bet={p.current_bet}, acted={p.has_acted_this_round}, folded={p.has_folded}, all_in={p.is_all_in}")
-        # print(f"Highest bet: {highest_bet}")
-        # print(f"All players checked: {all_players_checked}")
-        # print(f"All players matched bet: {all_players_matched_bet}")
+        print("* Checking if phase is over...")
+        for p in active_players:
+            print(f"Player {p.position}: bet={p.current_bet}, acted={p.has_acted_this_round}, folded={p.has_folded}, all_in={p.is_all_in}")
+        print(f"Highest bet: {highest_bet}")
+        print(f"All players checked: {all_players_checked}")
+        print(f"All players matched bet: {all_players_matched_bet}")
         return phase_over
 
 
@@ -1134,13 +1124,16 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         print("* GOTO NEXT PHASE")
         next_phase = get_next_phase(game.current_phase)
-        next_phase = next_phase.lower()
+        game.current_phase = next_phase
+        await sync_to_async(game.save)()
 
+
+        print("** NEXT PHASE :",next_phase)
         if next_phase not in {"flop", "turn", "river", "showdown"}:
             return #Safety check
 
         if next_phase == "showdown":
-            self.handle_showdown(game)
+            await self.handle_showdown(game)
             return
         
         # Burn one card
@@ -1153,18 +1146,13 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.deck = game.deck[cards_to_deal:]
 
         # Save
-        game.current_phase = next_phase
+       #  game.current_phase = next_phase
         await sync_to_async(game.save)()
 
         # Broadcast
         cards_pretty = await sync_to_async(convert_treys_str_int_pretty)(game.community_cards)
         phase_label = f"📡 {next_phase.capitalize()} : {cards_pretty}"
         await self.broadcast_messages(phase_label)
-
-       # await self.move_to_next_phase(next_phase,game)
-        # Deal the cards
-       #  await sync_to_async(game.save)()
-
 
 
 
@@ -1278,22 +1266,6 @@ class GameConsumer(AsyncWebsocketConsumer):
     # CARD & DEALING LOGIC
     # ===========================================
 
-    # -----------------------------------------------------------------------
-    # async def burn_card(self, game: Game) -> None:
-    #     """
-    #     Burns (removes) the top card from the deck.
-    
-    #     This is used in Texas Hold'em to discard a card before dealing
-    #     community cards (Flop, Turn, River) to prevent cheating and ensure fairness.
-    
-    #     Args:
-    #         game (Game): The current game instance.
-    
-    #     Returns:
-    #         None
-    #     """
-    #     if game.deck:
-    #         game.deck.pop(0)
 
     # -----------------------------------------------------------------------
     async def deal(self, game: Game) -> None:
@@ -1537,11 +1509,9 @@ class GameConsumer(AsyncWebsocketConsumer):
                     "is_all_in": p.is_all_in,
                     "is_next_to_play": p.position == current_player.position,
                     "user_can_check": await sync_to_async(
-                       # lambda: user_can_check(game, p), thread_sensitive=True
                        lambda: can_user_do_action(game, p, "check"), thread_sensitive=True
                     )(),
                     "user_can_call": await sync_to_async(
-                       # lambda: user_can_call(game, p), thread_sensitive=True
                        lambda: can_user_do_action(game, p, "call"), thread_sensitive=True
                     )(),
                 }

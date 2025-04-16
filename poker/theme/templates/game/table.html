@@ -649,10 +649,14 @@ Javascript
     // Otherwise, take the next message from the front of the queue
     const msg = messageQueue.shift();
 
-    // Show it on the table
-    showTemporaryMessageTop(msg, displayTime); // your existing overlay function
+    // display information about winner to slow pace down before new hand
+    if (msg.startsWith("🏆")) { 
+      showTemporaryMessage(msg, "info", 3000); 
+    } else {
+      showTemporaryMessageTop(msg, displayTime);
+    }
 
-    // After 1 second, append it to the #action-messages
+    // After x second, append it to the #action-messages
     setTimeout(() => {
      const messagesList = document.getElementById("action-messages");
       

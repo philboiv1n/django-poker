@@ -11,6 +11,16 @@ from itertools import combinations
 from .models import Game, Player
 
 
+
+# -----------------------------------------------------------------------
+def create_deck () -> list:
+    """
+    """
+    suits = ["s", "c", "h", "d"]  # ["♠", "♣", "♥", "♦"]
+    ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
+    return [f"{rank}{suit}" for suit in suits for rank in ranks]
+
+
 # -----------------------------------------------------------------------
 def can_user_do_action(game: Game, player: Player, action: str) -> bool:
     """
