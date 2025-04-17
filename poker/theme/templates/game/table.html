@@ -39,7 +39,7 @@ Community cards
 ---------------------------------------------------------------------------->
 <span id="community-cards" style="display: none;">{{ game.community_cards }}</span>
 
-<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 px-2 pt-2 pb-6 bg-emerald-800  mb-6 mx-auto rounded-[30px]">
+<div class="flex flex-col items-center md:w-3/5 lg:w-1/2 px-2 pt-2 pb-6 bg-emerald-800 mb-6 mx-auto rounded-[30px]">
  
   <div class="text-4xl text-emerald-700">♦︎&nbsp;♣︎&nbsp;♥︎&nbsp;♠︎</div>
 
@@ -55,8 +55,8 @@ Community cards
     <div class="card-placeholder" data-index="4"></div>
   </div>
 
-  <div>
-    Total Pot : <span id="current-pot">
+  <div class="text-xl text-emerald-600">
+    Pot : <span id="current-pot">
      <script>
       pot = {{ game.get_pot }};
       document.write(pot.toLocaleString('fr-CA'));  
@@ -89,6 +89,11 @@ Player cards and actions
           oninput="validateBetInput(this)" class="bg-gray-600 text-white p-2 rounded shadow-xl">
         <button onclick="placeBet()" class="bg-gradient-to-r from-yellow-600 to-yellow-500 text-white px-4 py-2 rounded shadow-xl action-button">Bet</button>
     </div>
+
+    <div class="text-xl text-emerald-600 mt-4">Your chips : 
+    <span id="your-chips"></span>
+    </div>
+
 </div>
 
 <!---------------------------------------------------------------------------
@@ -165,12 +170,6 @@ Javascript
           showTemporaryMessage(data.error, "error", 1000);
         }
 
-        // Update players list
-        if (data.players) {
-          renderPlayersList(data.players, "players-list");
-          isPlayer = data.players.some(player => player.username === username);
-        } 
-
         // Update buttons state
         if (data.type === "update_game_state") {
           gameStatus = data.game_status;
@@ -179,6 +178,12 @@ Javascript
           players = data.players;
           buttonsStateMachine(gameStatus, currentPhase, currentUsername, username, isPlayer, players);
         }
+
+        // Update players list
+        if (data.players) {
+          renderPlayersList(data.players, "players-list");
+          isPlayer = data.players.some(player => player.username === username);
+        } 
 
          // Update game status
         if (data.game_status !== undefined) {
@@ -508,8 +513,6 @@ Javascript
     if (!playerList) return;
 
 
-    // playerList.setAttribute("class","flex flex-wrap justify-center gap-4 w-full my-4 p-4");
-
     // Clear existing
     playerList.innerHTML = "";
 
@@ -518,6 +521,14 @@ Javascript
       const li = document.createElement("li");
       li.setAttribute("data-position", player.position);
       li.setAttribute("class", "flex flex-col items-center p-2 rounded-lg size-36 shadow-lg");
+
+      //If it's the current player, update your-chips display
+      if (player.username === username) {
+        const yourChips = document.getElementById("your-chips");
+        if (yourChips) {
+          yourChips.textContent = player.game_chips.toLocaleString('fr-CA');
+        }
+      }
       
       // Dealer marker
       const dealerMarkup = player.is_dealer
@@ -540,7 +551,7 @@ Javascript
         : "";
 
       // Next to play ?
-      if (player.is_next_to_play) {
+      if (player.is_next_to_play && gameStatus == "active" ) {
         li.classList.add("bg-emerald-800");
         nextMarkup = `<span class="items-center justify-center text-white text-sm">Your turn</span>`;
       } else {
@@ -651,7 +662,7 @@ Javascript
 
     // display information about winner to slow pace down before new hand
     if (msg.startsWith("🏆")) { 
-      showTemporaryMessage(msg, "info", 3000); 
+      showTemporaryMessage(msg, "info", 2000); 
     } else {
       showTemporaryMessageTop(msg, displayTime);
     }
@@ -689,8 +700,9 @@ Javascript
     let playersData = JSON.parse('{{ players_json|safe }}');
     renderPlayersList(playersData, "players-list");
 
+    // Update player's table chip
+
     // Update buttons state
-    // buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer);
     buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer, playersData);
    
     // Load initial community cards
