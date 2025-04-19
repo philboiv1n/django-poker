@@ -123,7 +123,7 @@ class Game(models.Model):
     )
 
     # Store the side pots
-    side_pots = models.JSONField(default=list)
+    # side_pots = models.JSONField(default=list)
 
     # Amount of chips required to join this table.
     buy_in = models.PositiveIntegerField(default=1000)

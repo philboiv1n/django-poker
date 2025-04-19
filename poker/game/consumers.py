@@ -4,6 +4,7 @@ import random
 import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.conf import settings
+from django.db import transaction
 from asgiref.sync import sync_to_async
 from treys import Card
 # from itertools import combinations
@@ -178,83 +179,218 @@ class GameConsumer(AsyncWebsocketConsumer):
     # call start_hand.
     #
 
-    async def handle_join(self, game:Game, player_username: str) -> None:
-        """
-        Handles a player joining the game.
+    # async def handle_join(self, game:Game, player_username: str) -> None:
+    #     """
+    #     Handles a player joining the game.
  
-        This function checks if the player is already seated or has enough chips,
-        assigns them a position, deducts their buy-in, and creates a Player instance.
-        If the table is full after this join, it starts the game.
+    #     This function checks if the player is already seated or has enough chips,
+    #     assigns them a position, deducts their buy-in, and creates a Player instance.
+    #     If the table is full after this join, it starts the game.
  
-        Args:
-            game (Game): The game instance.
-            player_username (str): The username of the joining player.
+    #     Args:
+    #         game (Game): The game instance.
+    #         player_username (str): The username of the joining player.
  
-        Returns:
-            None
-        """
+    #     Returns:
+    #         None
+    #     """
         
+    #     print("* HANDLE JOIN")
+
+    #     user = await sync_to_async(User.objects.get)(username=player_username)
+    #     user_profile = await sync_to_async(lambda: user.profile)()
+
+    #     # Check if already sitting
+    #     existing_player = await sync_to_async(
+    #         lambda: game.players.filter(user=user).exists()
+    #     )()
+    #     if existing_player:
+    #         await self.send(
+    #             text_data=json.dumps({"error": "You are already playing on this table"})
+    #         )
+    #         return
+
+    #     # Find the lowest available position
+    #     taken_positions = await sync_to_async(
+    #         lambda: list(game.players.values_list("position", flat=True))
+    #     )()
+    #     available_positions = [
+    #         pos for pos in range(game.max_players) if pos not in taken_positions
+    #     ]
+    #     if not available_positions:
+    #         await self.send(text_data=json.dumps({"error": "Table is full!"}))
+    #         return  # No available positions
+
+
+    #     # Ensure the player has enough chips
+    #     if user_profile.chips < game.buy_in:
+    #         await self.send(
+    #             text_data=json.dumps({"error": "Not enough chips to join!"})
+    #         )
+    #         return
+
+    #     # Deduct buy-in from player’s total chips
+    #     await sync_to_async(
+    #         lambda: setattr(user_profile, "chips", user_profile.chips - game.buy_in)
+    #     )()
+    #     await sync_to_async(user_profile.save)()
+
+    #     # Create new Player
+    #     await sync_to_async(Player.objects.create)(
+    #         game=game, user=user, position=min(available_positions), chips=game.buy_in
+    #     )
+
+    #     # Notify all players : new user join table
+    #     join_message = f" 🪑 {player_username} has join the table."
+    #     await self.broadcast_messages(join_message)
+
+    #     # Check if we should start the game
+    #     # currently only working for sit_and_go games
+    #     player_count = await sync_to_async(lambda: game.players.count())()
+    #     if game.game_type == "sit_and_go" and player_count == game.max_players:
+    #         await self.start_hand(game)
+    #         return
+
+    #     # Notify all players about game state
+    #     await asyncio.gather(
+    #         self.broadcast_game_state(game),
+    #         self.broadcast_private(game),
+    #     )
+
+    async def handle_join(self, game: Game, player_username: str) -> None:
+        """
+        Handles a player joining the game, with transaction safety and better structure.
+        """
+
         print("* HANDLE JOIN")
 
-        user = await sync_to_async(User.objects.get)(username=player_username)
-        user_profile = await sync_to_async(lambda: user.profile)()
-
-        # Check if already sitting
-        existing_player = await sync_to_async(
-            lambda: game.players.filter(user=user).exists()
-        )()
-        if existing_player:
-            await self.send(
-                text_data=json.dumps({"error": "You are already playing on this table"})
-            )
+        try:
+            user = await sync_to_async(User.objects.get)(username=player_username)
+        except User.DoesNotExist:
+            await self.send(text_data=json.dumps({"error": "User not found"}))
             return
 
-        # Find the lowest available position
-        taken_positions = await sync_to_async(
-            lambda: list(game.players.values_list("position", flat=True))
-        )()
-        available_positions = [
-            pos for pos in range(game.max_players) if pos not in taken_positions
-        ]
-        if not available_positions:
-            await self.send(text_data=json.dumps({"error": "Table is full!"}))
-            return  # No available positions
-
-
-        # Ensure the player has enough chips
-        if user_profile.chips < game.buy_in:
-            await self.send(
-                text_data=json.dumps({"error": "Not enough chips to join!"})
-            )
+        try:
+            await self.join_game_transaction(game.id, user.id)
+        except Exception as e:
+            await self.send(text_data=json.dumps({"error": str(e)}))
             return
 
-        # Deduct buy-in from player’s total chips
-        await sync_to_async(
-            lambda: setattr(user_profile, "chips", user_profile.chips - game.buy_in)
-        )()
-        await sync_to_async(user_profile.save)()
+        await self.broadcast_messages(f"🪑 {player_username} has joined the table.")
 
-        # Create new Player
-        await sync_to_async(Player.objects.create)(
-            game=game, user=user, position=min(available_positions), chips=game.buy_in
-        )
-
-        # Notify all players : new user join table
-        join_message = f" 🪑 {player_username} has join the table."
-        await self.broadcast_messages(join_message)
-
-        # Check if we should start the game
-        # currently only working for sit_and_go games
+        # Check if game should start
         player_count = await sync_to_async(lambda: game.players.count())()
         if game.game_type == "sit_and_go" and player_count == game.max_players:
             await self.start_hand(game)
-            return
+        else:
+            await asyncio.gather(
+                self.broadcast_game_state(game),
+                self.broadcast_private(game),
+            )
 
-        # Notify all players about game state
-        await asyncio.gather(
-            self.broadcast_game_state(game),
-            self.broadcast_private(game),
+    @sync_to_async
+    @transaction.atomic
+    def join_game_transaction(self, game_id, user_id):
+        game = Game.objects.select_for_update().get(id=game_id)
+        user = User.objects.select_related("profile").get(id=user_id)
+        profile = user.profile
+
+        if game.players.filter(user=user).exists():
+            raise Exception("You're already seated at this table")
+
+        taken_positions = list(game.players.values_list("position", flat=True))
+        available_positions = [pos for pos in range(game.max_players) if pos not in taken_positions]
+
+        if not available_positions:
+            raise Exception("Table is full")
+
+        if profile.chips < game.buy_in:
+            raise Exception("Not enough chips")
+
+        profile.chips -= game.buy_in
+        profile.save()
+
+        Player.objects.create(
+            game=game,
+            user=user,
+            position=min(available_positions),
+            chips=game.buy_in
         )
+
+    # -----------------------------------------------------------------------
+    # async def handle_leave(self, game:Game, player_username: str) -> None:
+    #     """
+    #     Handles a player leaving the game.
+ 
+    #     If the game hasn't started, refunds their buy-in. Updates game state accordingly.
+    #     If this player was the dealer or currently active, reassigns those roles.
+    #     Broadcasts updated game state and removes the player.
+ 
+    #     Args:
+    #         game (Game): The game instance.
+    #         player_username (str): The username of the player leaving the table.
+ 
+    #     Returns:
+    #         None
+    #     """
+
+    #     print("* HANDLE LEAVE")
+
+    #     # Get the player
+    #     player = await sync_to_async(
+    #         lambda: game.players.filter(user__username=player_username).first()
+    #     )()
+    #     if not player:
+    #         return
+
+    #     # Refund buy-in if game hasn't started
+    #     if game.game_type == "sit_and_go" and game.status == "waiting":
+    #         user_profile = await sync_to_async(lambda: player.user.profile)()
+    #         await sync_to_async(
+    #             lambda: setattr(user_profile, "chips", user_profile.chips + game.buy_in)
+    #         )()
+    #         await sync_to_async(user_profile.save)()
+    #         await self.broadcast_private(game)
+
+    #     # Remove player from the game
+    #     await sync_to_async(player.delete)()
+
+    #     # Renumber the positions of the remaining players.
+    #     remaining_players = await sync_to_async(
+    #         lambda: list(game.players.order_by("position"))
+    #     )()
+
+    #     # Reassign positions sequentially starting at 0.
+    #     for new_position, p in enumerate(remaining_players):
+    #         p.position = new_position
+    #         await sync_to_async(p.save)()
+
+    #     # Update dealer_position and current_turn if needed.
+    #     # For example, if the leaving player was the dealer or the current turn,
+    #     # we reassign these roles to the first player.
+    #     if len(remaining_players) < 2:
+    #         game.status = "finished" if game.status == "active" else "waiting"
+    #         await self.reset_hand(game)
+    #     else:
+    #         if game.dealer_position == player.position:
+    #             game.dealer_position = remaining_players[0].position
+    #         if game.current_turn == player.position:
+    #            game.current_turn = remaining_players[0].position
+
+    #     await sync_to_async(game.save)()
+        
+    #     # After updating positions and roles, check if the current phase is complete.
+    #     if await self.is_phase_over(game):
+    #         await self.end_phase(game)
+    #         return
+
+    #     # Notify all players
+    #     leave_message = f"⚠️ {player_username} has left the table."
+    #     await asyncio.gather(
+    #         self.broadcast_messages(leave_message),
+    #         self.broadcast_game_state(game),
+    #     )
+
 
 
     # -----------------------------------------------------------------------
@@ -275,61 +411,61 @@ class GameConsumer(AsyncWebsocketConsumer):
         """
 
         print("* HANDLE LEAVE")
-
-        # Get the player
-        player = await sync_to_async(
-            lambda: game.players.filter(user__username=player_username).first()
-        )()
-        if not player:
-            return
-
-        # Refund buy-in if game hasn't started
-        if game.game_type == "sit_and_go" and game.status == "waiting":
-            user_profile = await sync_to_async(lambda: player.user.profile)()
-            await sync_to_async(
-                lambda: setattr(user_profile, "chips", user_profile.chips + game.buy_in)
-            )()
-            await sync_to_async(user_profile.save)()
-            await self.broadcast_private(game)
-
-        # Remove player from the game
-        await sync_to_async(player.delete)()
-
-        # Renumber the positions of the remaining players.
-        remaining_players = await sync_to_async(
-            lambda: list(game.players.order_by("position"))
-        )()
-
-        # Reassign positions sequentially starting at 0.
-        for new_position, p in enumerate(remaining_players):
-            p.position = new_position
-            await sync_to_async(p.save)()
-
-        # Update dealer_position and current_turn if needed.
-        # For example, if the leaving player was the dealer or the current turn,
-        # we reassign these roles to the first player.
-        if len(remaining_players) < 2:
-            game.status = "finished" if game.status == "active" else "waiting"
+    
+        game = await self.leave_game_transaction(game.id, player_username)
+        # game = await sync_to_async(Game.objects.get)(id=game.id) #re-fetch after transaction
+ 
+        if game.status == "finished":
             await self.reset_hand(game)
-        else:
-            if game.dealer_position == player.position:
-                game.dealer_position = remaining_players[0].position
-            if game.current_turn == player.position:
-               game.current_turn = remaining_players[0].position
-
-        await sync_to_async(game.save)()
-        
-        # After updating positions and roles, check if the current phase is complete.
-        if await self.is_phase_over(game):
+        elif game.status == "active" and await self.is_phase_over(game):
             await self.end_phase(game)
             return
-
-        # Notify all players
+    
         leave_message = f"⚠️ {player_username} has left the table."
         await asyncio.gather(
             self.broadcast_messages(leave_message),
             self.broadcast_game_state(game),
+            self.send_private_to_user(self.user),
         )
+
+    @sync_to_async
+    @transaction.atomic
+    def leave_game_transaction(self, game_id, username):
+        game = Game.objects.select_for_update().get(id=game_id)
+        player = game.players.select_related("user__profile").filter(user__username=username).first()
+
+        if not player:
+            raise Exception("Player not found")
+
+        player_position = player.position
+
+        # Refund buy-in if game hasn't started
+        if game.game_type == "sit_and_go" and game.status == "waiting":
+            profile = player.user.profile
+            profile.chips += game.buy_in
+            profile.save()
+
+        # Delete the player
+        player.delete()
+
+        # Renumber positions
+        remaining_players = list(game.players.order_by("position"))
+        for new_pos, p in enumerate(remaining_players):
+            p.position = new_pos
+            p.save()
+
+        # Update game state if necessary
+        if len(remaining_players) < 2:
+            game.status = "finished" if game.status == "active" else "waiting"
+        else:
+            if game.dealer_position == player_position:
+                game.dealer_position = remaining_players[0].position
+            if game.current_turn == player_position:
+                game.current_turn = remaining_players[0].position
+
+        game.save()
+        return game
+    
 
 
 
@@ -602,6 +738,9 @@ class GameConsumer(AsyncWebsocketConsumer):
         if await self.is_phase_over(game):
             await self.end_phase(game)
         else:
+            print("-----------------")
+            print(game.current_turn)
+            print("-----------------")
             await self.next_player(game, game.current_turn)
 
 
@@ -670,7 +809,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         # If only 1 player remains, end the hand
         if len(players) == 1:
             print("*** Only 1 player left. Ending game and transferring chips.")
-            await self.transfer_chips_to_profile(players[0])
+            await self.transfer_chips_to_profile(game, players[0])
             username = await sync_to_async(
                 lambda: players[0].user.username, thread_sensitive=True
             )()
@@ -728,7 +867,6 @@ class GameConsumer(AsyncWebsocketConsumer):
         print("* RESET HAND")
 
         game.current_turn = None
-        game.side_pots = []
         game.deck = []
         game.community_cards = []
         game.current_phase = "preflop"
@@ -885,85 +1023,136 @@ class GameConsumer(AsyncWebsocketConsumer):
         big_blind_player.is_big_blind = True
         await sync_to_async(big_blind_player.save)()
 
-        # Broadcast
-        # sb_username = await sync_to_async(lambda: small_blind_player.user.username)()
-        # bb_username = await sync_to_async(lambda: big_blind_player.user.username)()
-
-        # await self.broadcast_messages(f"✨ {sb_username} & {bb_username} post blinds.")
-
         # Save
         await sync_to_async(game.save)()
 
 
 
+    # async def next_player(self, game: Game, start_position: int) -> int:
+    #     """
+    #     Advances the turn to the next active player (i.e. one who has not folded and is not all-in)
+    #     based on the provided start_position (a seat number). It uses a circular ordering of all players
+    #     who are eligible to act. If the full circle is completed (i.e. the candidate to act
+    #     would be the same as the provided start_position), it returns None to signal that all players have acted,
+    #     and the betting phase should end.
+        
+    #     In an ongoing betting round (highest_bet > 0), it selects the first player in circular order
+    #     who either hasn't acted this round or hasn't matched the highest bet.
+    #     In a new betting round (highest_bet == 0), it selects the first active player in the circular order.
+        
+    #     Args:
+    #         game (Game): The current game instance.
+    #         start_position (int): The seat number of the last acting player.
+        
+    #     Returns:
+    #         int: The seat number of the next active player, or None if a full circle has been completed.
+    #     """
+    #     print("* NEXT PLAYER")
+    #     print("*** Provided start_position (seat):", start_position)
+
+    #     # Get active players: those who have not folded and are not all-in.
+    #     active_players = await sync_to_async(
+    #         lambda: list(game.players.filter(has_folded=False, is_all_in=False).order_by("position"))
+    #     )()
+    #     if not active_players:
+    #         print("*** No active players; advancing to showdown.")
+    #         while game.current_phase != "showdown":
+    #             await self.goto_next_phase(game)
+    #         await self.start_hand(game)
+    #         return None
+
+    #     # Determine the highest current bet among active players.
+    #     highest_bet = max(p.current_bet for p in active_players)
+    #     print("*** Highest bet among active players:", highest_bet)
+
+    #     # Build the circular order of active players based on their seat numbers.
+    #     # That is, all players with a seat number greater than start_position, followed by those with <= start_position.
+    #     players_after = [p for p in active_players if p.position > start_position]
+    #     players_before_or_equal = [p for p in active_players if p.position <= start_position]
+    #     circular_order = players_after + players_before_or_equal
+    #     print("*** Circular order of active players (by seat):", [p.position for p in circular_order])
+
+    #     candidate = None
+
+    #     # Evaluate who should act next
+    #     for p in circular_order:
+    #         if highest_bet == 0:
+    #             candidate = p
+    #             break
+    #         if p.current_bet < highest_bet or not p.has_acted_this_round:
+    #             candidate = p
+    #             break
+
+    #     # No one to act, round is over
+    #     if candidate is None:
+    #         print("*** No eligible next player found; betting round over.")
+    #         return None
+
+    #     # Assign turn to the candidate
+    #     print("*** Next candidate seat:", candidate.position)
+    #     game.current_turn = candidate.position
+    #     await sync_to_async(game.save)()
+    #     await self.broadcast_game_state(game)
+
+    #     return game.current_turn
+
     async def next_player(self, game: Game, start_position: int) -> int:
         """
-        Advances the turn to the next active player (i.e. one who has not folded and is not all-in)
-        based on the provided start_position (a seat number). It uses a circular ordering of all players
-        who are eligible to act. If the full circle is completed (i.e. the candidate to act
-        would be the same as the provided start_position), it returns None to signal that all players have acted,
-        and the betting phase should end.
-        
-        In an ongoing betting round (highest_bet > 0), it selects the first player in circular order
-        who either hasn't acted this round or hasn't matched the highest bet.
-        In a new betting round (highest_bet == 0), it selects the first active player in the circular order.
-        
+        Determines and sets the next player to act based on current game state.
+        Skips players who are folded or all-in. If no player needs to act, ends the betting round.
+
         Args:
             game (Game): The current game instance.
             start_position (int): The seat number of the last acting player.
-        
+
         Returns:
-            int: The seat number of the next active player, or None if a full circle has been completed.
+            int: The seat number of the next player, or None if the betting round is complete.
         """
         print("* NEXT PLAYER")
         print("*** Provided start_position (seat):", start_position)
 
-        # Get active players: those who have not folded and are not all-in.
-        active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False, is_all_in=False).order_by("position"))
+        # Fetch all players who have not folded
+        all_active_players = await sync_to_async(
+            lambda: list(game.players.filter(has_folded=False).order_by("position")),
+            thread_sensitive=True
         )()
-        if not active_players:
-            print("*** No active players; advancing to showdown.")
+
+        # Split into those who can act (not all-in) and all for highest_bet calculation
+        eligible_players = [p for p in all_active_players if not p.is_all_in]
+
+        if not eligible_players:
+            print("*** No eligible players found. Advancing to showdown.")
             while game.current_phase != "showdown":
                 await self.goto_next_phase(game)
             await self.start_hand(game)
             return None
 
-        # Determine the highest current bet among active players.
-        highest_bet = max(p.current_bet for p in active_players)
-        print("*** Highest bet among active players:", highest_bet)
+        # Compute highest bet among all (including all-ins) to fairly assess who needs to act
+        highest_bet = max(p.current_bet for p in all_active_players)
+        print("*** Highest bet among all active players:", highest_bet)
 
-        # Build the circular order of active players based on their seat numbers.
-        # That is, all players with a seat number greater than start_position, followed by those with <= start_position.
-        players_after = [p for p in active_players if p.position > start_position]
-        players_before_or_equal = [p for p in active_players if p.position <= start_position]
-        circular_order = players_after + players_before_or_equal
-        print("*** Circular order of active players (by seat):", [p.position for p in circular_order])
+        # Build circular player order after start_position
+        after = [p for p in eligible_players if p.position > start_position]
+        before = [p for p in eligible_players if p.position <= start_position]
+        circular_order = after + before
+
+        print("*** Circular order of eligible players (by seat):", [p.position for p in circular_order])
 
         candidate = None
-        if highest_bet > 0:
-            # Ongoing betting round: choose the first player (in circular order)
-            # who either hasn't acted yet this round or hasn't matched the highest bet.
-            for p in circular_order:
-                if p.current_bet < highest_bet or not p.has_acted_this_round:
-                    candidate = p
-                    break
-        else:
-            # New betting round (no bets have been placed): choose the first active player in the circular order.
-            candidate = circular_order[0]
+        for p in circular_order:
+            if p.current_bet < highest_bet or not p.has_acted_this_round:
+                candidate = p
+                break
 
-        # If the candidate is the same as the provided start_position, then the full circle is complete.
-        if candidate.position == start_position:
-            print("*** Full circle complete; betting round over.")
+        if candidate is None:
+            print("*** No player needs to act. Betting round is complete.")
             return None
 
         print("*** Next candidate seat:", candidate.position)
-        # Update game state.
         game.current_turn = candidate.position
         await sync_to_async(game.save)()
         await self.broadcast_game_state(game)
-
-        return game.current_turn
+        return candidate.position
 
 
 
@@ -1342,7 +1531,7 @@ class GameConsumer(AsyncWebsocketConsumer):
  
 
     # -----------------------------------------------------------------------
-    async def transfer_chips_to_profile(self, player: Player) -> None:
+    async def transfer_chips_to_profile(self, game: Game, player: Player) -> None:
         """
         Transfers remaining in-game chips from a player to their profile.
 
@@ -1415,12 +1604,12 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_send(
             self.room_group_name,
             {
-                "type": "send_action_message",
+                "type": "broadcast_messages_helper",
                 "messages": [message], 
             },
         )
 
-    async def send_action_message(self, event):
+    async def broadcast_messages_helper(self, event):
         """
         Sends action messages to the frontend.
  
@@ -1437,7 +1626,6 @@ class GameConsumer(AsyncWebsocketConsumer):
             "messages": event["messages"],
         }
         await self.send(text_data=json.dumps(message_data))
-
 
 
     # -----------------------------------------------------------------------
@@ -1523,22 +1711,16 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_send(
             self.room_group_name,
             {
-                "type": "send_game_state",
+                "type": "broadcast_send_helper",
                 "data": game_state_message,
             },
         )
 
-    async def send_game_state(self, event):
+   
+    # -----------------------------------------------------------------------
+    async def broadcast_send_helper(self, event):
         """
-        Sends the game state payload to the frontend.
- 
-        Triggered by `broadcast_game_state` to deliver real-time updates to the client.
- 
-        Args:
-            event (dict): Contains the game state data.
- 
-        Returns:
-            None
+        Trigger that handles sending data.
         """
         await self.send(text_data=json.dumps(event["data"]))
 
@@ -1583,24 +1765,10 @@ class GameConsumer(AsyncWebsocketConsumer):
             await self.channel_layer.group_send(
                 f"user_{id}",
                 {
-                    "type": "send_personal_game_state",
+                    "type": "broadcast_send_helper",
                     "data": private_data,
                 },
             )
-
-    async def send_personal_game_state(self, event):
-        """
-        Sends a player's private game data (e.g., hole cards).
- 
-        Triggered by `broadcast_private` to send only to one player's WebSocket channel.
- 
-        Args:
-            event (dict): Contains private data like hole cards and chip count.
- 
-        Returns:
-            None
-        """
-        await self.send(text_data=json.dumps(event["data"]))
 
 
     # -----------------------------------------------------------------------
@@ -1635,21 +1803,38 @@ class GameConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_send(
             self.user_channel_name,  # Only to the current user
             {
-                "type": "send_private_update",
+                "type": "broadcast_send_helper",
                 "data": private_message,
             },
         )
 
-    async def send_private_update(self, event):
+
+    # -----------------------------------------------------------------------
+    async def send_private_to_user(self, user: User) -> None:
         """
-        Sends private hole cards update to the reconnecting player.
- 
-        Triggered by `send_private_game_state`.
+        Sends private user status to a user.
  
         Args:
-            event (dict): Contains the private data payload.
+            user (User): The user.
  
         Returns:
             None
-        """
-        await self.send(text_data=json.dumps(event["data"]))
+        """ 
+
+        total_user_chips = await sync_to_async(
+            lambda: user.profile.chips, thread_sensitive=True
+        )()
+
+        private_message = {
+            "type": "private_game_state",
+            "total_user_chips": total_user_chips,
+        }
+
+        # Send private message only to this user's private channel
+        await self.channel_layer.group_send(
+            self.user_channel_name,  # Only to the current user
+            {
+                "type": "broadcast_send_helper",
+                "data": private_message,
+            },
+        )
