@@ -1,5 +1,8 @@
+import logging
 from asgiref.sync import sync_to_async
 from ..models import Game, Player
+
+logger = logging.getLogger(__name__)
 
 
 class DealingMixin:
@@ -43,7 +46,7 @@ class DealingMixin:
             (i for i, p in enumerate(players) if p.position == dealer_position), -1
         )
         if start_index == -1:
-            print("Dealer not found. Cannot proceed with dealing.")
+            logger.warning("deal: dealer position %s not found in players", dealer_position)
             return
 
         # Deal cards in two rounds

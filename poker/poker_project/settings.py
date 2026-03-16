@@ -33,7 +33,7 @@ SECRET_KEY = env.str("SECRET_KEY")
 DEBUG = env.bool("DEBUG", default=False)
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 REDIS_HOST = env.str("REDIS_HOST")
-REDIS_PORT = env.str("REDIS_PORT")
+REDIS_PORT = env.int("REDIS_PORT")
 
 
 # Application definition

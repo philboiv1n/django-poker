@@ -24,8 +24,9 @@ class BroadcastingMixin:
         # Store the message in Redis (pushing to the end of the list)
         redis_key = f"game_{self.game_id}_messages"
         redis_client.rpush(redis_key, json.dumps({"message": message}))
-        # Trim to last 10
+        # Trim to last 10 and set a 24-hour TTL so finished-game keys don't accumulate
         redis_client.ltrim(redis_key, -10, -1)
+        redis_client.expire(redis_key, 86400)
 
         # Broadcast *only* the newly-added message
         await self.channel_layer.group_send(

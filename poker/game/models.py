@@ -174,10 +174,10 @@ class Player(models.Model):
     current_bet = models.PositiveIntegerField(default=0)
 
     # Cumulative bet in the game
-    total_bet = models.IntegerField(default=0)
+    total_bet = models.PositiveIntegerField(default=0)
 
     # Whether the player folded
-    has_folded = models.BooleanField(default=False)
+    has_folded = models.BooleanField(default=False, db_index=True)
 
     # Whether the player has checked
     has_checked = models.BooleanField(default=False)
@@ -202,7 +202,7 @@ class Player(models.Model):
     can_reraise_this_round = models.BooleanField(default=True)
 
     # Assigns a seat in the game
-    position = models.PositiveIntegerField(null=True, blank=True)
+    position = models.PositiveIntegerField(null=True, blank=True, db_index=True)
 
     # Store hole cards (two private cards per player)
     hole_cards = models.JSONField(default=list)  # Stores ["4♥︎", "K♠︎"]

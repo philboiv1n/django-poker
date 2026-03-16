@@ -1,8 +1,11 @@
+import logging
 from collections import defaultdict
 from asgiref.sync import sync_to_async
 from treys import Card
 from ..models import Game, Player
 from ..utils import get_next_phase, find_best_five_cards, convert_treys_str_int_pretty
+
+logger = logging.getLogger(__name__)
 
 
 class PhasesMixin:
@@ -27,7 +30,7 @@ class PhasesMixin:
             bool: True if the phase should end, False otherwise.
         """
 
-        print("* CHECK IF PHASE IS OVER")
+        logger.debug("is_phase_over")
 
         if active_players is None:
             active_players = await sync_to_async(
@@ -65,12 +68,11 @@ class PhasesMixin:
         else:
             phase_over = False
 
-        print("* Checking if phase is over...")
+        logger.debug("is_phase_over: evaluating state")
         for p in active_players:
-            print(f"Player {p.position}: bet={p.current_bet}, acted={p.has_acted_this_round}, folded={p.has_folded}, all_in={p.is_all_in}")
-        print(f"Highest bet: {highest_bet}")
-        print(f"All players checked: {all_players_checked}")
-        print(f"All players matched bet: {all_players_matched_bet}")
+            logger.debug("  player %s: bet=%s acted=%s folded=%s all_in=%s", p.position, p.current_bet, p.has_acted_this_round, p.has_folded, p.is_all_in)
+        logger.debug("is_phase_over: highest_bet=%s", highest_bet)
+        logger.debug("is_phase_over: all_checked=%s all_matched=%s", all_players_checked, all_players_matched_bet)
         return phase_over
 
     async def end_phase(self, game: Game, winner=None) -> None:
@@ -89,7 +91,7 @@ class PhasesMixin:
             None
         """
 
-        print("* END PHASE")
+        logger.debug("end_phase")
 
         # Reset each player's current bet & checked status for the next phase/hand
         players = await sync_to_async(
@@ -149,12 +151,12 @@ class PhasesMixin:
             None
         """
 
-        print("* GOTO NEXT PHASE")
+        logger.debug("goto_next_phase")
         next_phase = get_next_phase(game.current_phase)
         game.current_phase = next_phase
         await sync_to_async(lambda: game.save(update_fields=["current_phase"]))()
 
-        print("** NEXT PHASE :", next_phase)
+        logger.debug("goto_next_phase: next=%s", next_phase)
         if next_phase not in {"flop", "turn", "river", "showdown"}:
             return  # Safety check
 
@@ -195,7 +197,7 @@ class PhasesMixin:
             None
         """
 
-        print("* MOVE TO SHOWDOWN")
+        logger.debug("handle_showdown")
 
         active_players = await sync_to_async(
             lambda: list(game.players.select_related("user").filter(has_folded=False)),
@@ -223,7 +225,7 @@ class PhasesMixin:
                 side_pots.append({"amount": pot_size, "eligible_ids": eligible_players})
                 previous_bet = current_bet
 
-        print(side_pots)
+        logger.debug("side_pots=%s", side_pots)
 
         # Evaluate each player's best 5-card hand
         player_hands = []
