@@ -416,6 +416,13 @@ class GameConsumer(AsyncWebsocketConsumer):
         # game = await sync_to_async(Game.objects.get)(id=game.id) #re-fetch after transaction
  
         if game.status == "finished":
+            # Transfer any remaining in-game chips to profiles before resetting
+            remaining_players = await sync_to_async(
+                lambda: list(game.players.all()), thread_sensitive=True
+            )()
+            for p in remaining_players:
+                if p.chips > 0:
+                    await self.transfer_chips_to_profile(game, p)
             await self.reset_hand(game)
         elif game.status == "active" and await self.is_phase_over(game):
             await self.end_phase(game)
@@ -438,30 +445,56 @@ class GameConsumer(AsyncWebsocketConsumer):
             raise Exception("Player not found")
 
         player_position = player.position
+        profile = player.user.profile
 
-        # Refund buy-in if game hasn't started
-        if game.game_type == "sit_and_go" and game.status == "waiting":
-            profile = player.user.profile
-            profile.chips += game.buy_in
+        if game.status == "active":
+            # Mid-hand: fold the player and immediately refund their un-bet chips.
+            # Keep the Player record so total_bet remains in get_pot(); it is
+            # cleaned up at the start of the next hand (chips == 0 path).
+            profile.chips += player.chips
             profile.save()
+            player.chips = 0
+            player.has_folded = True
+            player.has_acted_this_round = True
+            player.save()
 
-        # Delete the player
-        player.delete()
-
-        # Renumber positions
-        remaining_players = list(game.players.order_by("position"))
-        for new_pos, p in enumerate(remaining_players):
-            p.position = new_pos
-            p.save()
-
-        # Update game state if necessary
-        if len(remaining_players) < 2:
-            game.status = "finished" if game.status == "active" else "waiting"
-        else:
-            if game.dealer_position == player_position:
-                game.dealer_position = remaining_players[0].position
+            # Reassign current_turn if this player was about to act
             if game.current_turn == player_position:
-                game.current_turn = remaining_players[0].position
+                active_remaining = list(
+                    game.players.filter(has_folded=False).order_by("position")
+                )
+                if active_remaining:
+                    game.current_turn = active_remaining[0].position
+
+            # End game if fewer than 2 players can still act
+            active_remaining = list(game.players.filter(has_folded=False))
+            if len(active_remaining) < 2:
+                game.status = "finished"
+
+        elif game.status == "waiting":
+            # Pre-game: refund full buy-in and remove the player
+            if game.game_type == "sit_and_go":
+                profile.chips += game.buy_in
+                profile.save()
+
+            player.delete()
+
+            remaining_players = list(game.players.order_by("position"))
+            for new_pos, p in enumerate(remaining_players):
+                p.position = new_pos
+                p.save()
+
+            if len(remaining_players) < 2:
+                game.status = "waiting"
+            else:
+                if game.dealer_position == player_position:
+                    game.dealer_position = remaining_players[0].position
+                if game.current_turn == player_position:
+                    game.current_turn = remaining_players[0].position
+
+        else:
+            # Game already finished — just clean up
+            player.delete()
 
         game.save()
         return game
@@ -714,11 +747,10 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         print("* POST ACTION FLOW")
 
-        active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True)()
-
-        # General all-in logic for 2+ players
-        non_folded = [p for p in active_players if not p.has_folded]
-        not_all_in_players = [p for p in non_folded if not p.is_all_in]
+        active_players = await sync_to_async(
+            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+        )()
+        not_all_in_players = [p for p in active_players if not p.is_all_in]
  
         # If everyone is all-in, auto-run remaining board
         if len(not_all_in_players) == 0:
@@ -729,7 +761,7 @@ class GameConsumer(AsyncWebsocketConsumer):
  
         # If only one player is not all-in and they’ve matched the highest total bet
         if len(not_all_in_players) == 1:
-            max_bet = max(p.total_bet for p in non_folded)
+            max_bet = max(p.total_bet for p in active_players)
             remaining = not_all_in_players[0]
             if remaining.total_bet >= max_bet:
                 while game.current_phase != "showdown":
@@ -1426,9 +1458,8 @@ class GameConsumer(AsyncWebsocketConsumer):
             best_score = in_contest[0][0]
             winners = [(s, r, b5, p) for (s, r, b5, p) in in_contest if s == best_score]
             share = pot_amount // len(winners)
+            remainder = pot_amount % len(winners)
 
-            # @TODO - Modify this to broadcast each player only once...
-          
             for (win_score, win_rank, win_5, win_player) in winners:
                 winnings[win_player]["chips_won"] += share
                 winnings[win_player]["best_score"] = win_score
@@ -1436,6 +1467,18 @@ class GameConsumer(AsyncWebsocketConsumer):
                 winnings[win_player]["best_five"] = win_5
                 win_player.chips += share
                 await sync_to_async(win_player.save)()
+
+            # Award the odd chip(s) to the winner(s) sitting closest left of the dealer
+            if remainder > 0:
+                dealer_pos = game.dealer_position or 0
+                winners_sorted = sorted(
+                    winners,
+                    key=lambda x: (x[3].position - dealer_pos - 1) % (max(p.position for p in all_players) + 1)
+                )
+                odd_chip_player = winners_sorted[0][3]
+                odd_chip_player.chips += remainder
+                winnings[odd_chip_player]["chips_won"] += remainder
+                await sync_to_async(odd_chip_player.save)()
 
         
         # Now broadcast once per winning player
