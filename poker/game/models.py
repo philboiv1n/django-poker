@@ -173,6 +173,11 @@ class Game(models.Model):
     # Stores the deck as a list of strings
     deck = models.JSONField(default=list)
 
+    # The size of the last raise in the current betting round, used to enforce
+    # the correct minimum re-raise rule (min raise = last raise increment).
+    # Reset to 0 at the start of each betting round.
+    last_raise_delta = models.PositiveIntegerField(default=0)
+
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -247,8 +252,12 @@ class Player(models.Model):
     # Player is dealing
     is_dealer = models.BooleanField(default=False)
 
-    # Whether the player has acted 
+    # Whether the player has acted
     has_acted_this_round = models.BooleanField(default=False)
+
+    # False when a sub-minimum all-in has occurred and this player has already
+    # acted at the previous bet level — they may only call, not re-raise.
+    can_reraise_this_round = models.BooleanField(default=True)
 
     # Assigns a seat in the game
     position = models.PositiveIntegerField(null=True, blank=True)

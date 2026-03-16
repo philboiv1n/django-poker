@@ -681,25 +681,36 @@ class GameConsumer(AsyncWebsocketConsumer):
         if amount <= 0 or amount > player.chips:
             await self.send(text_data=json.dumps({"error": "Invalid bet amount."}))
             return
-        
+
+        # Block a raise if a sub-minimum all-in has frozen this player's option
+        if not player.can_reraise_this_round:
+            await self.send(json.dumps({"error": "You can only call or fold."}))
+            return
+
         highest_bet = await sync_to_async(
             lambda: max(game.players.values_list("current_bet", flat=True), default=0)
         )()
 
         big_blind = game.big_blind
+        last_raise_delta = game.last_raise_delta
 
-        # min_raise_to is the minimum total bet level after this action
-        min_raise_to = big_blind if highest_bet == 0 else max(big_blind, highest_bet * 2)
-        # min_additional is how many extra chips the player must put in given their current bet
+        # Correct minimum raise:
+        #   - First bet of the round: must be at least big_blind
+        #   - Re-raise: must increase the bet by at least the previous raise increment
+        #     (or big_blind if no raise has happened yet in this round)
+        min_increment = max(last_raise_delta, big_blind)
+        min_raise_to = highest_bet + min_increment
         min_additional = max(0, min_raise_to - player.current_bet)
-        if amount < min_additional and player.chips > min_additional:
+
+        is_all_in_attempt = (amount == player.chips)
+
+        if amount < min_additional and not is_all_in_attempt:
             await self.send(json.dumps({"error": f"Minimum raise to {min_raise_to} chips."}))
             return
 
         # All-in check
-        if amount == player.chips:
+        if is_all_in_attempt:
             player.is_all_in = True
-
 
         # Deduct bet from player's chips
         player.chips -= amount
@@ -707,6 +718,25 @@ class GameConsumer(AsyncWebsocketConsumer):
         player.total_bet += amount
         player.has_acted_this_round = True
         await sync_to_async(player.save)()
+
+        # Update last_raise_delta and handle sub-minimum all-in betting freeze
+        new_bet_level = player.current_bet  # after the bet
+        raise_increment = new_bet_level - highest_bet
+
+        if is_all_in_attempt and raise_increment < min_increment:
+            # Sub-minimum all-in: freeze re-raise rights for players who already acted
+            already_acted = await sync_to_async(
+                lambda: list(game.players.filter(has_acted_this_round=True, has_folded=False)),
+                thread_sensitive=True,
+            )()
+            for p in already_acted:
+                p.can_reraise_this_round = False
+                await sync_to_async(p.save)()
+            # last_raise_delta stays unchanged (sub-minimum raise doesn't update it)
+        else:
+            # Full raise: update the raise delta for the next re-raise calculation
+            game.last_raise_delta = raise_increment
+        await sync_to_async(game.save)()
        
 
         # Broadcast
@@ -905,6 +935,7 @@ class GameConsumer(AsyncWebsocketConsumer):
         game.deck = []
         game.community_cards = []
         game.current_phase = "preflop"
+        game.last_raise_delta = 0
 
         players = await sync_to_async(lambda: list(game.players.all()), thread_sensitive=True)()
         for player in players:
@@ -916,6 +947,7 @@ class GameConsumer(AsyncWebsocketConsumer):
             player.is_big_blind = False
             player.has_checked = False
             player.has_acted_this_round = False
+            player.can_reraise_this_round = True
             await sync_to_async(player.save)()
         
         await sync_to_async(game.save)()
@@ -1304,7 +1336,12 @@ class GameConsumer(AsyncWebsocketConsumer):
             player.current_bet = 0
             player.has_checked = False
             player.has_acted_this_round = False
+            player.can_reraise_this_round = True
             await sync_to_async(player.save)()
+
+        # Reset raise delta for the new betting round
+        game.last_raise_delta = 0
+        await sync_to_async(game.save)()
 
          # If there's a forced winner (1 player left after folds),
         if winner:
