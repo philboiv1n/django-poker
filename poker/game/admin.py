@@ -14,28 +14,6 @@ from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
 from .models import Profile, Game, Player
 
-# List of fields related to user statistics that should be read-only in the admin interface
-READONLY_FIELDS = (
-    "total_chips_received",
-    "total_chips_won",
-    "total_chips_lost",
-    "games_played",
-    "games_won",
-    "games_lost",
-    "hands_played",
-    "hands_won",
-    "highest_win",
-    "longest_winning_streak",
-    "longest_losing_streak",
-    "average_bet",
-    "ranking",
-    "royal_flushes",
-    "straight_flushes",
-    "four_of_a_kinds",
-    "full_houses",
-)
-
-
 class ProfileInline(admin.StackedInline):
     """
     An inline admin descriptor for Profile objects.
@@ -46,7 +24,6 @@ class ProfileInline(admin.StackedInline):
     model = Profile
     can_delete = False
     verbose_name_plural = "Profile"
-    readonly_fields = READONLY_FIELDS
 
 
 class UserAdmin(BaseUserAdmin):
@@ -89,11 +66,9 @@ class UserAdmin(BaseUserAdmin):
 class ProfileAdmin(admin.ModelAdmin):
     """
     Custom admin configuration for Profiles.
-    Prevents editing of read-only stat fields, but allows editing basic profile info.
     """
 
-    readonly_fields = READONLY_FIELDS
-    list_display = ("user", "chips", "games_played", "games_won")
+    list_display = ("user", "chips")
 
 
 @admin.register(Game)
@@ -147,7 +122,7 @@ class PlayerAdmin(admin.ModelAdmin):
     list_display = ("user", "game", "chips", "last_active")
     list_filter = ("game", "user")
     search_fields = ("user__username", "game__name")
-    actions = ["remove_from_game", "remove_inactive_players"]
+    actions = ["remove_from_game"]
 
     def remove_from_game(self, request, queryset):
         """

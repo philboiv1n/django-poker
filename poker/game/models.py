@@ -12,20 +12,10 @@ pieces of data are stored. This allows the application to store and manage
 players, games, and poker statistics seamlessly.
 """
 
-import redis
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils.timezone import now
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
-from django.conf import settings
-
-
-# Connect to Redis
-redis_client = redis.Redis(
-    host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True
-)
 
 
 class Profile(models.Model):
@@ -43,54 +33,6 @@ class Profile(models.Model):
 
     # The number of chips a user currently holds (fictional currency).
     chips = models.PositiveIntegerField(default=1000)
-
-    # The cumulative total of chips the user has ever received (e.g., from admin or game buy-ins).
-    total_chips_received = models.PositiveIntegerField(default=0)
-
-    # Total chips the user has won overall across all games.
-    total_chips_won = models.PositiveIntegerField(default=0)
-
-    # Total chips the user has lost overall across all games.
-    total_chips_lost = models.PositiveIntegerField(default=0)
-
-    # Overall statistics:
-    # - games_played: total number of complete games the user participated in
-    # - games_won: total number of games the user finished in a winning position
-    # - games_lost: total number of games the user lost
-    games_played = models.PositiveIntegerField(default=0)
-    games_won = models.PositiveIntegerField(default=0)
-    games_lost = models.PositiveIntegerField(default=0)
-
-    # Tracking hands at a more granular level:
-    # - hands_played: how many poker hands dealt to this user
-    # - hands_won: how many of those hands were winning hands
-    hands_played = models.PositiveIntegerField(default=0)
-    hands_won = models.PositiveIntegerField(default=0)
-
-    # The largest pot or single-hand earning achieved in a single win.
-    highest_win = models.PositiveIntegerField(default=0)
-
-    # Streak tracking:
-    # - longest_winning_streak: the highest consecutive wins in terms of hands/games
-    # - longest_losing_streak: the highest consecutive losses
-    longest_winning_streak = models.PositiveIntegerField(default=0)
-    longest_losing_streak = models.PositiveIntegerField(default=0)
-
-    # The average bet size the user typically makes (for analytics).
-    average_bet = models.FloatField(default=0.0)
-
-    # The player's ranking among other players (if applicable).
-    ranking = models.PositiveIntegerField(null=True, blank=True)
-
-    # Counters for specific rare or powerful hands:
-    # - royal_flushes: how many times the user got a Royal Flush
-    # - straight_flushes: how many times the user got a Straight Flush
-    # - four_of_a_kinds: how many times the user got Four of a Kind
-    # - full_houses: how many times the user got a Full House
-    royal_flushes = models.PositiveIntegerField(default=0)
-    straight_flushes = models.PositiveIntegerField(default=0)
-    four_of_a_kinds = models.PositiveIntegerField(default=0)
-    full_houses = models.PositiveIntegerField(default=0)
 
 
 class Game(models.Model):
@@ -173,6 +115,11 @@ class Game(models.Model):
     # Stores the deck as a list of strings
     deck = models.JSONField(default=list)
 
+    # The size of the last raise in the current betting round, used to enforce
+    # the correct minimum re-raise rule (min raise = last raise increment).
+    # Reset to 0 at the start of each betting round.
+    last_raise_delta = models.PositiveIntegerField(default=0)
+
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -247,8 +194,12 @@ class Player(models.Model):
     # Player is dealing
     is_dealer = models.BooleanField(default=False)
 
-    # Whether the player has acted 
+    # Whether the player has acted
     has_acted_this_round = models.BooleanField(default=False)
+
+    # False when a sub-minimum all-in has occurred and this player has already
+    # acted at the previous bet level — they may only call, not re-raise.
+    can_reraise_this_round = models.BooleanField(default=True)
 
     # Assigns a seat in the game
     position = models.PositiveIntegerField(null=True, blank=True)
