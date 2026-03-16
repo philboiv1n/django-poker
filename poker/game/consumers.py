@@ -416,6 +416,13 @@ class GameConsumer(AsyncWebsocketConsumer):
         # game = await sync_to_async(Game.objects.get)(id=game.id) #re-fetch after transaction
  
         if game.status == "finished":
+            # Transfer any remaining in-game chips to profiles before resetting
+            remaining_players = await sync_to_async(
+                lambda: list(game.players.all()), thread_sensitive=True
+            )()
+            for p in remaining_players:
+                if p.chips > 0:
+                    await self.transfer_chips_to_profile(game, p)
             await self.reset_hand(game)
         elif game.status == "active" and await self.is_phase_over(game):
             await self.end_phase(game)
@@ -438,30 +445,56 @@ class GameConsumer(AsyncWebsocketConsumer):
             raise Exception("Player not found")
 
         player_position = player.position
+        profile = player.user.profile
 
-        # Refund buy-in if game hasn't started
-        if game.game_type == "sit_and_go" and game.status == "waiting":
-            profile = player.user.profile
-            profile.chips += game.buy_in
+        if game.status == "active":
+            # Mid-hand: fold the player and immediately refund their un-bet chips.
+            # Keep the Player record so total_bet remains in get_pot(); it is
+            # cleaned up at the start of the next hand (chips == 0 path).
+            profile.chips += player.chips
             profile.save()
+            player.chips = 0
+            player.has_folded = True
+            player.has_acted_this_round = True
+            player.save()
 
-        # Delete the player
-        player.delete()
-
-        # Renumber positions
-        remaining_players = list(game.players.order_by("position"))
-        for new_pos, p in enumerate(remaining_players):
-            p.position = new_pos
-            p.save()
-
-        # Update game state if necessary
-        if len(remaining_players) < 2:
-            game.status = "finished" if game.status == "active" else "waiting"
-        else:
-            if game.dealer_position == player_position:
-                game.dealer_position = remaining_players[0].position
+            # Reassign current_turn if this player was about to act
             if game.current_turn == player_position:
-                game.current_turn = remaining_players[0].position
+                active_remaining = list(
+                    game.players.filter(has_folded=False).order_by("position")
+                )
+                if active_remaining:
+                    game.current_turn = active_remaining[0].position
+
+            # End game if fewer than 2 players can still act
+            active_remaining = list(game.players.filter(has_folded=False))
+            if len(active_remaining) < 2:
+                game.status = "finished"
+
+        elif game.status == "waiting":
+            # Pre-game: refund full buy-in and remove the player
+            if game.game_type == "sit_and_go":
+                profile.chips += game.buy_in
+                profile.save()
+
+            player.delete()
+
+            remaining_players = list(game.players.order_by("position"))
+            for new_pos, p in enumerate(remaining_players):
+                p.position = new_pos
+                p.save()
+
+            if len(remaining_players) < 2:
+                game.status = "waiting"
+            else:
+                if game.dealer_position == player_position:
+                    game.dealer_position = remaining_players[0].position
+                if game.current_turn == player_position:
+                    game.current_turn = remaining_players[0].position
+
+        else:
+            # Game already finished — just clean up
+            player.delete()
 
         game.save()
         return game
@@ -655,9 +688,12 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         big_blind = game.big_blind
 
-        min_bet = big_blind if highest_bet == 0 else max(big_blind, highest_bet * 2)
-        if amount < min_bet and player.chips > min_bet:
-            await self.send(json.dumps({"error": f"Minimum raise is {min_bet} chips."}))
+        # min_raise_to is the minimum total bet level after this action
+        min_raise_to = big_blind if highest_bet == 0 else max(big_blind, highest_bet * 2)
+        # min_additional is how many extra chips the player must put in given their current bet
+        min_additional = max(0, min_raise_to - player.current_bet)
+        if amount < min_additional and player.chips > min_additional:
+            await self.send(json.dumps({"error": f"Minimum raise to {min_raise_to} chips."}))
             return
 
         # All-in check
@@ -711,11 +747,10 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         print("* POST ACTION FLOW")
 
-        active_players = await sync_to_async(lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True)()
-
-        # General all-in logic for 2+ players
-        non_folded = [p for p in active_players if not p.has_folded]
-        not_all_in_players = [p for p in non_folded if not p.is_all_in]
+        active_players = await sync_to_async(
+            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+        )()
+        not_all_in_players = [p for p in active_players if not p.is_all_in]
  
         # If everyone is all-in, auto-run remaining board
         if len(not_all_in_players) == 0:
@@ -726,7 +761,7 @@ class GameConsumer(AsyncWebsocketConsumer):
  
         # If only one player is not all-in and they’ve matched the highest total bet
         if len(not_all_in_players) == 1:
-            max_bet = max(p.total_bet for p in non_folded)
+            max_bet = max(p.total_bet for p in active_players)
             remaining = not_all_in_players[0]
             if remaining.total_bet >= max_bet:
                 while game.current_phase != "showdown":
@@ -873,6 +908,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         players = await sync_to_async(lambda: list(game.players.all()), thread_sensitive=True)()
         for player in players:
+            player.current_bet = 0
             player.total_bet = 0
             player.has_folded = False
             player.is_all_in = False
@@ -913,7 +949,7 @@ class GameConsumer(AsyncWebsocketConsumer):
 
         # If we have never set a dealer before, default to the first seat
         if game.dealer_position is None:
-            new_dealer_index = players[0].position
+            new_dealer_index = 0
         else :
             # Find the current dealer's position in the list
             current_dealer_index = next(
@@ -1009,18 +1045,24 @@ class GameConsumer(AsyncWebsocketConsumer):
             game.current_turn = players[first_to_act_index].position
 
            
-        # Deduct small blind
-        small_blind_player.chips -= small_blind
-        small_blind_player.current_bet = small_blind
-        small_blind_player.total_bet += small_blind
+        # Deduct small blind (go all-in if not enough chips)
+        sb_amount = min(small_blind, small_blind_player.chips)
+        small_blind_player.chips -= sb_amount
+        small_blind_player.current_bet = sb_amount
+        small_blind_player.total_bet += sb_amount
         small_blind_player.is_small_blind = True
+        if small_blind_player.chips == 0:
+            small_blind_player.is_all_in = True
         await sync_to_async(small_blind_player.save)()
 
-        # Deduct big blind
-        big_blind_player.chips -= big_blind
-        big_blind_player.current_bet = big_blind
-        big_blind_player.total_bet += big_blind
+        # Deduct big blind (go all-in if not enough chips)
+        bb_amount = min(big_blind, big_blind_player.chips)
+        big_blind_player.chips -= bb_amount
+        big_blind_player.current_bet = bb_amount
+        big_blind_player.total_bet += bb_amount
         big_blind_player.is_big_blind = True
+        if big_blind_player.chips == 0:
+            big_blind_player.is_all_in = True
         await sync_to_async(big_blind_player.save)()
 
         # Save
@@ -1199,28 +1241,23 @@ class GameConsumer(AsyncWebsocketConsumer):
         if len(active_players) <= 1:
             return False
 
-        highest_bet = await sync_to_async(
-            lambda: max(game.players.values_list("current_bet", flat=True))
-        )()
+        # Only players who can still act (not all-in) determine if the phase is over
+        eligible_players = [p for p in active_players if not p.is_all_in]
+        if not eligible_players:
+            return True  # Everyone is all-in; move to next phase
 
-    
-        # If all active players have checked with no bet
-        all_players_checked = all(p.has_checked for p in active_players if not p.has_folded)
-        all_players_matched_bet = all(p.current_bet == highest_bet for p in active_players if not p.has_folded)
+        highest_bet = max(p.current_bet for p in eligible_players)
+
+        # If all eligible players have checked with no bet
+        all_players_checked = all(p.has_checked for p in eligible_players)
+        all_players_matched_bet = all(p.current_bet == highest_bet for p in eligible_players)
 
 
         # If it's preflop and the big blind hasn't acted yet
         if game.current_phase == "preflop":
-            # Identify big blind player
-            big_blind_player = None
-            for p in active_players:
-                if p.is_big_blind:
-                    big_blind_player = p
-                    break
-
-            if big_blind_player is not None:
-                if not big_blind_player.has_acted_this_round and not big_blind_player.is_all_in:
-                    return False
+            big_blind_player = next((p for p in eligible_players if p.is_big_blind), None)
+            if big_blind_player is not None and not big_blind_player.has_acted_this_round:
+                return False
 
         # Normal scenario #1: there's a bet, everyone matched
         if highest_bet > 0 and all_players_matched_bet:
@@ -1421,16 +1458,27 @@ class GameConsumer(AsyncWebsocketConsumer):
             best_score = in_contest[0][0]
             winners = [(s, r, b5, p) for (s, r, b5, p) in in_contest if s == best_score]
             share = pot_amount // len(winners)
+            remainder = pot_amount % len(winners)
 
-            # @TODO - Modify this to broadcast each player only once...
-          
             for (win_score, win_rank, win_5, win_player) in winners:
                 winnings[win_player]["chips_won"] += share
-                winnings[win_player]["best_score"] = score
-                winnings[win_player]["best_rank"] = rank
+                winnings[win_player]["best_score"] = win_score
+                winnings[win_player]["best_rank"] = win_rank
                 winnings[win_player]["best_five"] = win_5
                 win_player.chips += share
                 await sync_to_async(win_player.save)()
+
+            # Award the odd chip(s) to the winner(s) sitting closest left of the dealer
+            if remainder > 0:
+                dealer_pos = game.dealer_position or 0
+                winners_sorted = sorted(
+                    winners,
+                    key=lambda x: (x[3].position - dealer_pos - 1) % (max(p.position for p in all_players) + 1)
+                )
+                odd_chip_player = winners_sorted[0][3]
+                odd_chip_player.chips += remainder
+                winnings[odd_chip_player]["chips_won"] += remainder
+                await sync_to_async(odd_chip_player.save)()
 
         
         # Now broadcast once per winning player
@@ -1497,28 +1545,22 @@ class GameConsumer(AsyncWebsocketConsumer):
         # Deal cards in two rounds
         for _ in range(2):  # Two hole cards per player
             for i in range(len(players)):
-                player = players[
-                    (start_index + i + 1) % len(players)
-                ]  # Next player after dealer
+                p = players[(start_index + i + 1) % len(players)]  # Next player after dealer
                 card = deck.pop(0)
-
-                # Append card to player's hand
                 username = await sync_to_async(
-                    lambda: player.user.username, thread_sensitive=True
+                    lambda: p.user.username, thread_sensitive=True
                 )()
                 if username not in dealt_cards:
                     dealt_cards[username] = []
                 dealt_cards[username].append(card)
 
-                # Save hole cards to database
-                for player in players:
-                    username = await sync_to_async(
-                        lambda: player.user.username, thread_sensitive=True
-                    )()
-                    if username in dealt_cards:
-                        await sync_to_async(player.set_hole_cards)(
-                            dealt_cards[username]
-                        )
+        # Save hole cards once after all cards are dealt
+        for p in players:
+            username = await sync_to_async(
+                lambda: p.user.username, thread_sensitive=True
+            )()
+            if username in dealt_cards:
+                await sync_to_async(p.set_hole_cards)(dealt_cards[username])
 
         game.deck = deck
 

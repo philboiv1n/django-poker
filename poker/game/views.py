@@ -51,7 +51,7 @@ def dashboard(request):
     Returns:
         HttpResponse: Rendered dashboard template with available games.
     """
-    available_games = Game.objects.all
+    available_games = Game.objects.all()
     return render(
         request,
         "game/dashboard.html",
