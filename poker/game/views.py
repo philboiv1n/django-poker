@@ -8,9 +8,7 @@ Defines the core view functions for the Django poker application:
 - Includes real-time-related and table join/leave logic.
 """
 
-import redis
 import json
-from django.conf import settings
 from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.forms import PasswordChangeForm
 from django.contrib.auth.decorators import login_required
@@ -20,6 +18,7 @@ from django.contrib import messages
 from .forms import ProfileForm
 from .models import Game
 from .utils import can_user_do_action
+from .redis_client import redis_client
 
 
 @login_required
@@ -146,18 +145,12 @@ def table(request, game_id):
         HttpResponse: Rendered table view with game and player info.
     """
 
-    # Connect to Redis
-    redis_client = redis.Redis(
-        host=settings.REDIS_HOST, port=settings.REDIS_PORT, db=0, decode_responses=True
-    )
-
     game = get_object_or_404(Game, id=game_id)
     players = game.players.all()
     current_turn_player = players.filter(position=game.current_turn).first() or players.first()
     current_turn_username = current_turn_player.user.username if current_turn_player else ""
     is_player = players.filter(user=request.user).exists()
 
-    # Retrieve last 10 messages from Redis (or DB)
     redis_key = f"game_{game_id}_messages"
     stored_messages = redis_client.lrange(redis_key, -10, -1)  # list of JSON strings
     # parse each
