@@ -132,16 +132,14 @@ class ActionsMixin:
             player.has_acted_this_round = True
             player.save()
 
-            # Reassign current_turn if this player was about to act
-            if game.current_turn == player_position:
-                active_remaining = list(
-                    game.players.filter(has_folded=False).order_by("position")
-                )
-                if active_remaining:
-                    game.current_turn = active_remaining[0].position
+            # Fetch once; reuse for both turn reassignment and finish check
+            active_remaining = list(
+                game.players.filter(has_folded=False).order_by("position")
+            )
+            if game.current_turn == player_position and active_remaining:
+                game.current_turn = active_remaining[0].position
 
             # End game if fewer than 2 players can still act
-            active_remaining = list(game.players.filter(has_folded=False))
             if len(active_remaining) < 2:
                 game.status = "finished"
 
@@ -156,7 +154,7 @@ class ActionsMixin:
             remaining_players = list(game.players.order_by("position"))
             for new_pos, p in enumerate(remaining_players):
                 p.position = new_pos
-                p.save()
+            Player.objects.bulk_update(remaining_players, ["position"])
 
             if len(remaining_players) < 2:
                 game.status = "waiting"
@@ -394,12 +392,14 @@ class ActionsMixin:
             )()
             for p in already_acted:
                 p.can_reraise_this_round = False
-                await sync_to_async(p.save)()
+            await sync_to_async(
+                lambda: Player.objects.bulk_update(already_acted, ["can_reraise_this_round"])
+            )()
             # last_raise_delta stays unchanged (sub-minimum raise doesn't update it)
         else:
             # Full raise: update the raise delta for the next re-raise calculation
             game.last_raise_delta = raise_increment
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["last_raise_delta"]))()
 
         # Broadcast
         username = await sync_to_async(

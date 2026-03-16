@@ -1,5 +1,6 @@
 import random
 import asyncio
+from django.db import transaction
 from asgiref.sync import sync_to_async
 from ..models import Game, Player
 from ..utils import create_deck
@@ -26,9 +27,10 @@ class GameStateMixin:
 
         print("* START HAND")
 
-        # Fetch active players
+        # Fetch active players with user pre-loaded (needed for username access below)
         players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
+            lambda: list(game.players.select_related("user").order_by("position")),
+            thread_sensitive=True,
         )()
 
         # Reset and start the hand!
@@ -89,7 +91,7 @@ class GameStateMixin:
         game.status = "active"
 
         # Save
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["status"]))()
 
         # Broadcast
         await asyncio.gather(
@@ -130,9 +132,22 @@ class GameStateMixin:
             player.has_checked = False
             player.has_acted_this_round = False
             player.can_reraise_this_round = True
-            await sync_to_async(player.save)()
+        await sync_to_async(
+            lambda: Player.objects.bulk_update(
+                players,
+                [
+                    "current_bet", "total_bet", "has_folded", "is_all_in",
+                    "is_small_blind", "is_big_blind", "has_checked",
+                    "has_acted_this_round", "can_reraise_this_round",
+                ],
+            )
+        )()
 
-        await sync_to_async(game.save)()
+        await sync_to_async(
+            lambda: game.save(
+                update_fields=["current_turn", "deck", "community_cards", "current_phase", "last_raise_delta"]
+            )
+        )()
 
     async def rotate_dealer(self, game: Game) -> None:
         """
@@ -176,15 +191,22 @@ class GameStateMixin:
                 new_dealer_index = (current_dealer_index + 1) % len(players)
 
         new_dealer = players[new_dealer_index]
+        new_dealer_id = new_dealer.id
+        new_dealer_position = new_dealer.position
 
-        # Reset the is_dealer flag for all players and assign to new dealer
-        await sync_to_async(lambda: Player.objects.filter(game=game).update(is_dealer=False))()
+        # Atomically reset is_dealer for all players and assign to new dealer
+        @sync_to_async
+        @transaction.atomic
+        def _set_dealer():
+            Player.objects.filter(game=game).update(is_dealer=False)
+            Player.objects.filter(id=new_dealer_id).update(is_dealer=True)
+
+        await _set_dealer()
+
+        # Update in-memory object and game
         new_dealer.is_dealer = True
-        await sync_to_async(new_dealer.save)()
-
-        # Update game
-        game.dealer_position = new_dealer.position
-        await sync_to_async(game.save)()
+        game.dealer_position = new_dealer_position
+        await sync_to_async(lambda: game.save(update_fields=["dealer_position"]))()
 
     async def assign_blinds(self, game: Game) -> None:
         """
@@ -255,7 +277,6 @@ class GameStateMixin:
         small_blind_player.is_small_blind = True
         if small_blind_player.chips == 0:
             small_blind_player.is_all_in = True
-        await sync_to_async(small_blind_player.save)()
 
         # Deduct big blind (go all-in if not enough chips)
         bb_amount = min(big_blind, big_blind_player.chips)
@@ -265,10 +286,15 @@ class GameStateMixin:
         big_blind_player.is_big_blind = True
         if big_blind_player.chips == 0:
             big_blind_player.is_all_in = True
-        await sync_to_async(big_blind_player.save)()
+
+        # Save both blind players in a single round-trip
+        blind_fields = ["chips", "current_bet", "total_bet", "is_small_blind", "is_big_blind", "is_all_in"]
+        await sync_to_async(
+            lambda: Player.objects.bulk_update([small_blind_player, big_blind_player], blind_fields)
+        )()
 
         # Save
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["current_turn"]))()
 
     async def next_player(self, game: Game, start_position: int) -> int:
         """
@@ -324,6 +350,6 @@ class GameStateMixin:
 
         print("*** Next candidate seat:", candidate.position)
         game.current_turn = candidate.position
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["current_turn"]))()
         await self.broadcast_game_state(game)
         return candidate.position

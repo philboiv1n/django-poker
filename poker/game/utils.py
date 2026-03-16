@@ -22,14 +22,15 @@ def create_deck () -> list:
 
 
 # -----------------------------------------------------------------------
-def can_user_do_action(game: Game, player: Player, action: str) -> bool:
+def can_user_do_action(game: Game, player: Player, action: str, highest_bet: int = None) -> bool:
     """
-    
+
     """
     if player.is_all_in or player.has_folded:
         return False
 
-    highest_bet = max(game.players.values_list("current_bet", flat=True))
+    if highest_bet is None:
+        highest_bet = max(game.players.values_list("current_bet", flat=True))
     difference = highest_bet - player.current_bet
 
     if action == "check" and difference > 0 :

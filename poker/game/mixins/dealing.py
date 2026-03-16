@@ -24,14 +24,18 @@ class DealingMixin:
         dealt_cards = {}
         deck = game.deck
 
-        # Fetch players in correct order
+        # Fetch players in correct order with user pre-loaded
         players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
+            lambda: list(game.players.select_related("user").order_by("position")),
+            thread_sensitive=True,
         )()
 
         # Safety check
         if not players:
             return
+
+        # Build username map once from in-memory data (no per-card DB hits)
+        player_usernames = {p.id: p.user.username for p in players}
 
         # Determine starting position (first player after the dealer)
         dealer_position = game.dealer_position
@@ -47,18 +51,14 @@ class DealingMixin:
             for i in range(len(players)):
                 p = players[(start_index + i + 1) % len(players)]  # Next player after dealer
                 card = deck.pop(0)
-                username = await sync_to_async(
-                    lambda: p.user.username, thread_sensitive=True
-                )()
+                username = player_usernames[p.id]
                 if username not in dealt_cards:
                     dealt_cards[username] = []
                 dealt_cards[username].append(card)
 
         # Save hole cards once after all cards are dealt
         for p in players:
-            username = await sync_to_async(
-                lambda: p.user.username, thread_sensitive=True
-            )()
+            username = player_usernames[p.id]
             if username in dealt_cards:
                 await sync_to_async(p.set_hole_cards)(dealt_cards[username])
 
@@ -86,18 +86,16 @@ class DealingMixin:
             None
         """
 
-        # Fetch user profile
-        user = await sync_to_async(lambda: player.user, thread_sensitive=True)()
-        user_profile = await sync_to_async(
-            lambda: user.profile, thread_sensitive=True
+        # Fetch user and profile in a single query
+        player_full = await sync_to_async(
+            lambda: Player.objects.select_related("user__profile").get(id=player.id),
+            thread_sensitive=True,
         )()
+        user_profile = player_full.user.profile
+        username = player_full.user.username
 
         # Transfer chips
         user_profile.chips += player.chips  # Add game chips to total chips
-
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
         await self.broadcast_messages(
             f"🎉 {username} wins the game and receives {player.chips} chips!"
         )

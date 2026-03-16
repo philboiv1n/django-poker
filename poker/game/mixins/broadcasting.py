@@ -68,29 +68,26 @@ class BroadcastingMixin:
             None
         """
 
-        # Fetch all players asynchronously
+        # Fetch all players with related user and profile in a single query
         players = await sync_to_async(
-            lambda: list(game.players.all()), thread_sensitive=True
+            lambda: list(game.players.select_related("user__profile").all()),
+            thread_sensitive=True,
         )()
 
-        # Find the current player in the list
+        # Find the current player in the in-memory list (no extra DB hit)
         current_player = next(
             (p for p in players if p.position == game.current_turn),
-            players[0] if players else None
+            players[0] if players else None,
         )
-
-        current_username = (
-            await sync_to_async(
-                lambda: current_player.user.username, thread_sensitive=True
-            )()
-            if current_player
-            else ""
-        )
+        current_username = current_player.user.username if current_player else ""
 
         # Get the current pot amount
         pot = await sync_to_async(lambda: game.get_pot(), thread_sensitive=True)()
 
-        # Create a personal game state message for each player
+        # Pre-compute highest bet once so can_user_do_action needs no DB queries
+        highest_bet = max((p.current_bet for p in players), default=0)
+
+        # Build the payload using only in-memory data
         game_state_message = {
             "type": "update_game_state",
             "game_status": game.status,
@@ -102,12 +99,8 @@ class BroadcastingMixin:
             "community_cards": game.community_cards,
             "players": [
                 {
-                    "username": await sync_to_async(
-                        lambda: p.user.username, thread_sensitive=True
-                    )(),
-                    "avatar_color": await sync_to_async(
-                        lambda: p.user.profile.avatar_color, thread_sensitive=True
-                    )(),
+                    "username": p.user.username,
+                    "avatar_color": p.user.profile.avatar_color,
                     "position": p.position,
                     "game_chips": p.chips,
                     "current_bet": p.current_bet,
@@ -120,12 +113,8 @@ class BroadcastingMixin:
                     "is_dealer": p.is_dealer,
                     "is_all_in": p.is_all_in,
                     "is_next_to_play": p.position == current_player.position,
-                    "user_can_check": await sync_to_async(
-                       lambda: can_user_do_action(game, p, "check"), thread_sensitive=True
-                    )(),
-                    "user_can_call": await sync_to_async(
-                       lambda: can_user_do_action(game, p, "call"), thread_sensitive=True
-                    )(),
+                    "user_can_check": can_user_do_action(game, p, "check", highest_bet),
+                    "user_can_call": can_user_do_action(game, p, "call", highest_bet),
                 }
                 for p in players
             ],
@@ -160,30 +149,23 @@ class BroadcastingMixin:
             None
         """
 
-        # Fetch all players asynchronously
+        # Fetch all players with related user and profile in a single query
         players = await sync_to_async(
-            lambda: list(game.players.all()), thread_sensitive=True
+            lambda: list(game.players.select_related("user__profile").all()),
+            thread_sensitive=True,
         )()
 
         for player in players:
-            id = await sync_to_async(lambda: player.user.id, thread_sensitive=True)()
-            hole_cards = await sync_to_async(
-                lambda: player.hole_cards, thread_sensitive=True
-            )()
-            total_user_chips = await sync_to_async(
-                lambda: player.user.profile.chips, thread_sensitive=True
-            )()
-
             # Create a personal game state message for each player
             private_data = {
                 "type": "update_private",
-                "hole_cards": hole_cards,
-                "total_user_chips": total_user_chips,
+                "hole_cards": player.hole_cards,
+                "total_user_chips": player.user.profile.chips,
             }
 
             # Send this game state **privately** to the respective player
             await self.channel_layer.group_send(
-                f"user_{id}",
+                f"user_{player.user.id}",
                 {
                     "type": "broadcast_send_helper",
                     "data": private_data,
@@ -202,14 +184,14 @@ class BroadcastingMixin:
             None
         """
 
-        player = await sync_to_async(lambda: game.players.filter(user=user).first())()
+        player = await sync_to_async(
+            lambda: game.players.select_related("user__profile").filter(user=user).first()
+        )()
         if not player:
             return  # Safety check
 
         hole_cards = player.hole_cards
-        total_user_chips = await sync_to_async(
-            lambda: player.user.profile.chips, thread_sensitive=True
-        )()
+        total_user_chips = player.user.profile.chips
 
         private_message = {
             "type": "private_game_state",

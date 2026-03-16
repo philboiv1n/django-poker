@@ -97,18 +97,22 @@ class PhasesMixin:
             player.has_checked = False
             player.has_acted_this_round = False
             player.can_reraise_this_round = True
-            await sync_to_async(player.save)()
+        await sync_to_async(
+            lambda: Player.objects.bulk_update(
+                players, ["current_bet", "has_checked", "has_acted_this_round", "can_reraise_this_round"]
+            )
+        )()
 
         # Reset raise delta for the new betting round
         game.last_raise_delta = 0
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["last_raise_delta"]))()
 
         # If there's a forced winner (1 player left after folds),
         if winner:
             # Get the current pot amount
             pot = await sync_to_async(lambda: game.get_pot(), thread_sensitive=True)()
             winner.chips += pot
-            await sync_to_async(winner.save)()
+            await sync_to_async(lambda: winner.save(update_fields=["chips"]))()
 
             username = await sync_to_async(lambda: winner.user.username)()
             await self.broadcast_messages(
@@ -145,7 +149,7 @@ class PhasesMixin:
         print("* GOTO NEXT PHASE")
         next_phase = get_next_phase(game.current_phase)
         game.current_phase = next_phase
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["current_phase"]))()
 
         print("** NEXT PHASE :", next_phase)
         if next_phase not in {"flop", "turn", "river", "showdown"}:
@@ -165,7 +169,7 @@ class PhasesMixin:
         game.deck = game.deck[cards_to_deal:]
 
         # Save
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["deck", "community_cards"]))()
 
         # Broadcast
         cards_pretty = await sync_to_async(convert_treys_str_int_pretty)(game.community_cards)
@@ -191,14 +195,17 @@ class PhasesMixin:
         print("* MOVE TO SHOWDOWN")
 
         active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+            lambda: list(game.players.select_related("user").filter(has_folded=False)),
+            thread_sensitive=True,
         )()
 
         if not active_players:
             return  # Safety check
 
         # Sort players by total bet (all players, including folded)
-        all_players = await sync_to_async(lambda: list(game.players.all()), thread_sensitive=True)()
+        all_players = await sync_to_async(
+            lambda: list(game.players.select_related("user").all()), thread_sensitive=True
+        )()
         all_players.sort(key=lambda p: p.total_bet)
 
         # Build side pots including folded players' contributions
@@ -218,7 +225,6 @@ class PhasesMixin:
         # Evaluate each player's best 5-card hand
         player_hands = []
         for player in active_players:
-            username = await sync_to_async(lambda: player.user.username)()
             combined_cards = game.community_cards + player.hole_cards
             score, rank, best_5_ints = await sync_to_async(find_best_five_cards)(combined_cards)
             player_hands.append((score, rank, best_5_ints, player))
@@ -254,7 +260,6 @@ class PhasesMixin:
                 winnings[win_player]["best_rank"] = win_rank
                 winnings[win_player]["best_five"] = win_5
                 win_player.chips += share
-                await sync_to_async(win_player.save)()
 
             # Award the odd chip(s) to the winner(s) sitting closest left of the dealer
             if remainder > 0:
@@ -266,11 +271,15 @@ class PhasesMixin:
                 odd_chip_player = winners_sorted[0][3]
                 odd_chip_player.chips += remainder
                 winnings[odd_chip_player]["chips_won"] += remainder
-                await sync_to_async(odd_chip_player.save)()
+
+        # Persist all chip changes in a single bulk_update
+        await sync_to_async(
+            lambda: Player.objects.bulk_update(list(winnings.keys()), ["chips"])
+        )()
 
         # Now broadcast once per winning player
         for win_player, info in winnings.items():
-            username = await sync_to_async(lambda: win_player.user.username)()
+            username = win_player.user.username
             best_five_str = Card.ints_to_pretty_str(info["best_five"]).replace(",", "")
             rank_desc = info["best_rank"]
             total_chips = info["chips_won"]

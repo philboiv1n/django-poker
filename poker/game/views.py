@@ -146,16 +146,22 @@ def table(request, game_id):
     """
 
     game = get_object_or_404(Game, id=game_id)
-    players = game.players.all()
-    current_turn_player = players.filter(position=game.current_turn).first() or players.first()
+    # Fetch players once with all related data to avoid N+1 queries
+    players = list(game.players.select_related("user__profile").all())
+    current_turn_player = next(
+        (p for p in players if p.position == game.current_turn),
+        players[0] if players else None,
+    )
     current_turn_username = current_turn_player.user.username if current_turn_player else ""
-    is_player = players.filter(user=request.user).exists()
+    is_player = any(p.user_id == request.user.id for p in players)
 
     redis_key = f"game_{game_id}_messages"
     stored_messages = redis_client.lrange(redis_key, -10, -1)  # list of JSON strings
     # parse each
     clean_messages = [json.loads(msg).get("message", "") for msg in stored_messages]
 
+    # Pre-compute highest bet once so can_user_do_action needs no DB queries
+    highest_bet = max((p.current_bet for p in players), default=0)
 
     players_data = []
 
@@ -171,8 +177,8 @@ def table(request, game_id):
             "avatar_color": p.user.profile.avatar_color,
             "current_bet": p.current_bet,
             "is_next_to_play": p.position == current_turn_player.position,
-            "user_can_check": can_user_do_action(game, p, "check"),
-            "user_can_call": can_user_do_action(game, p, "call"),
+            "user_can_check": can_user_do_action(game, p, "check", highest_bet),
+            "user_can_call": can_user_do_action(game, p, "call", highest_bet),
         })
 
     players_json = json.dumps(players_data)
