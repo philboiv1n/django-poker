@@ -14,7 +14,7 @@ players, games, and poker statistics seamlessly.
 
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator, RegexValidator
 from django.utils.timezone import now
 
 
@@ -29,10 +29,17 @@ class Profile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
 
     # Hex color code (e.g., "#FF5733") for the player's avatar or display.
-    avatar_color = models.CharField(max_length=7, default="#000000")
+    avatar_color = models.CharField(
+        max_length=7,
+        default="#000000",
+        validators=[RegexValidator(r'^#[0-9A-Fa-f]{6}$', "Enter a valid hex color (e.g. #FF5733).")],
+    )
 
     # The number of chips a user currently holds (fictional currency).
     chips = models.PositiveIntegerField(default=1000)
+
+    def __str__(self):
+        return f"{self.user.username}'s Profile"
 
 
 class Game(models.Model):
@@ -49,6 +56,12 @@ class Game(models.Model):
     # Betting structures: Limit or No-Limit.
     BETTING_TYPES = [
         ("no_limit", "No-Limit"),
+    ]
+
+    STATUS_CHOICES = [
+        ("waiting", "Waiting"),
+        ("active", "Active"),
+        ("finished", "Finished"),
     ]
 
     # Custom name of the table. Each table must have a unique name.
@@ -88,7 +101,7 @@ class Game(models.Model):
     # - "waiting": waiting for players
     # - "ctive": game in progress
     # - "Finished": game has ended
-    status = models.CharField(max_length=20, default="waiting")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="waiting")
 
     # Tracks dealer position (where dealing starts)
     dealer_position = models.IntegerField(null=True, blank=True)

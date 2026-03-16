@@ -23,7 +23,8 @@ let isProcessingQueue = false;
  * ----------------------------------------------------------------------*/
 function connectWebSocket() {
 
-  socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
+  const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+  socket = new WebSocket(`${wsProtocol}://${window.location.host}/ws/game/${gameId}/`);
 
   socket.onmessage = function (event) {
     const data = JSON.parse(event.data);
@@ -91,8 +92,19 @@ function connectWebSocket() {
   };
 
 
+  socket.onopen = function () {
+    const overlay = document.getElementById("overlay");
+    if (overlay) overlay.classList.add("hidden");
+  };
+
   socket.onclose = function (event) {
     console.warn("WebSocket Disconnected. Reconnecting in 5 seconds...");
+    const overlay = document.getElementById("overlay");
+    const overlayMessage = document.getElementById("overlayMessage");
+    if (overlay && overlayMessage) {
+      overlayMessage.textContent = "Reconnecting...";
+      overlay.classList.remove("hidden");
+    }
     setTimeout(connectWebSocket, reconnectInterval);
   };
 
