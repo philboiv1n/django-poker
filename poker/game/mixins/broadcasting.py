@@ -98,6 +98,13 @@ class BroadcastingMixin:
             "current_turn": game.current_turn,
             "current_username": current_username,
             "community_cards": game.community_cards,
+            "small_blind": game.small_blind,
+            "big_blind": game.big_blind,
+            "blind_timer": game.blind_timer,
+            "blinds_last_increased_at": (
+                game.blinds_last_increased_at.isoformat()
+                if game.blinds_last_increased_at else None
+            ),
             "players": [
                 {
                     "username": p.user.username,

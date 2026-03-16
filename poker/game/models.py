@@ -136,6 +136,10 @@ class Game(models.Model):
     # Timestamp of when the game was created.
     created_at = models.DateTimeField(auto_now_add=True)
 
+    # Timestamp of when blinds were last increased (or when game became active).
+    # Used by the blind timer to schedule the next increase.
+    blinds_last_increased_at = models.DateTimeField(null=True, blank=True)
+
     def get_pot(self) -> int:
         """
         Returns the total amount of chips across all players.

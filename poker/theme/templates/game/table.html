@@ -18,7 +18,13 @@ Game information
 <div class="md:w-3/5 lg:w-1/2 p-2 mx-auto">
   <h1 class="text-xl md:text-2xl my-2">{{ game.name }}</h1>
   <div class="text-sm">{{ game.get_game_type_display }} ({{ game.get_betting_type_display }}) {{ game.max_players}}&nbsp;players.</div>
-  <div class="text-sm">Buy-in: {{ game.buy_in }} - Blinds: {{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}</div>
+  <div class="text-sm">
+    Buy-in: {{ game.buy_in }} -
+    Blinds: <span id="blinds-display">{{ game.small_blind }}&nbsp;/&nbsp;{{ game.big_blind }}</span>
+    {% if game.blind_timer > 0 %}
+    &mdash; Next increase: <span id="blind-countdown">--:--</span>
+    {% endif %}
+  </div>
   <div class="text-sm">Game status: <span id="game-status" style="text-transform: capitalize;">{{ game.status }}</span> (<span id="current-phase" style="text-transform: capitalize;">{{ game.current_phase }}</span>)</div>
 
   <!-- Join / Leave Table Button  -->
@@ -125,6 +131,8 @@ Messages
     isPlayer: {{ is_player|yesno:"true,false" }},
     playersData: {{ players_json|safe }},
     lastMessages: {{ last_messages_json|safe }},
+    blindTimer: {{ game.blind_timer }},
+    blindsLastIncreasedAt: "{{ game.blinds_last_increased_at.isoformat|default:'' }}",
   };
 </script>
 <script src="{% static 'game/js/game.js' %}"></script>

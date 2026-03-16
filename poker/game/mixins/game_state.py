@@ -2,9 +2,11 @@ import random
 import asyncio
 import logging
 from django.db import transaction
+from django.utils.timezone import now
 from asgiref.sync import sync_to_async
 from ..models import Game, Player
 from ..utils import create_deck
+from ..blind_timer import start_blind_timer, cancel_blind_timer
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ class GameStateMixin:
         # If only 1 player remains, end the hand
         if len(players) == 1:
             logger.debug("Only 1 player left. Ending game and transferring chips.")
+            cancel_blind_timer(game.id)
             await self.transfer_chips_to_profile(game, players[0])
             username = players[0].user.username
             await self.broadcast_private(game)
@@ -88,8 +91,19 @@ class GameStateMixin:
         # Update Game Status
         game.status = "active"
 
+        # Initialise the blind timer timestamp on the first hand of this game
+        if game.blind_timer > 0 and game.blinds_last_increased_at is None:
+            game.blinds_last_increased_at = now()
+
         # Save
-        await sync_to_async(lambda: game.save(update_fields=["status"]))()
+        save_fields = ["status"]
+        if game.blinds_last_increased_at is not None:
+            save_fields.append("blinds_last_increased_at")
+        await sync_to_async(lambda: game.save(update_fields=save_fields))()
+
+        # Start (or restart) the blind increase timer
+        if game.blind_timer > 0:
+            start_blind_timer(game.id, self.channel_layer)
 
         # Broadcast
         await asyncio.gather(

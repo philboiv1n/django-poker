@@ -6,6 +6,7 @@ from django.utils.timezone import now
 from asgiref.sync import sync_to_async
 from ..models import Game, Player, User
 from ..utils import can_user_do_action
+from ..blind_timer import cancel_blind_timer
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ class ActionsMixin:
         game = await self.leave_game_transaction(game.id, player_username)
 
         if game.status == "finished":
+            cancel_blind_timer(game.id)
             # Transfer any remaining in-game chips to profiles before resetting
             remaining_players = await sync_to_async(
                 lambda: list(game.players.all()), thread_sensitive=True
