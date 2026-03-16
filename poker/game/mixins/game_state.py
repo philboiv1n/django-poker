@@ -42,29 +42,24 @@ class GameStateMixin:
         # Iterate over players and check chip status
         for player in players:
             if player.chips == 0:
-                username = await sync_to_async(
-                    lambda: player.user.username, thread_sensitive=True
-                )()
+                username = player.user.username
                 print(f"{username} has no chips left and will be removed from the game.")
                 await self.handle_leave(game, username)  # Remove player from the game
             elif player.chips < big_blind:
-                username = await sync_to_async(
-                    lambda: player.user.username, thread_sensitive=True
-                )()
+                username = player.user.username
                 print(f"{username} does not have enough for blinds and will go all-in.")
 
-        # Fetch active players again (updated)
+        # Fetch active players again (updated) with user pre-loaded
         players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
+            lambda: list(game.players.select_related("user").order_by("position")),
+            thread_sensitive=True,
         )()
 
         # If only 1 player remains, end the hand
         if len(players) == 1:
             print("*** Only 1 player left. Ending game and transferring chips.")
             await self.transfer_chips_to_profile(game, players[0])
-            username = await sync_to_async(
-                lambda: players[0].user.username, thread_sensitive=True
-            )()
+            username = players[0].user.username
             await self.broadcast_private(game)
             await self.handle_leave(game, username)  # Remove player from the game
             return

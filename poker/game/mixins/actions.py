@@ -193,9 +193,7 @@ class ActionsMixin:
             await self.send(text_data=json.dumps({"error": "You cannot fold."}))
             return
 
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
+        username = player.user.username
         await self.broadcast_messages(f"🔴 {username} folded.")
 
         player.has_folded = True
@@ -204,7 +202,8 @@ class ActionsMixin:
 
         # Check if only one active player remains
         active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+            lambda: list(game.players.select_related("user").filter(has_folded=False)),
+            thread_sensitive=True,
         )()
         if len(active_players) == 1:
             await self.end_phase(game, winner=active_players[0])
@@ -241,9 +240,7 @@ class ActionsMixin:
             await sync_to_async(player.save)()
 
             # Broadcast
-            username = await sync_to_async(
-                lambda: player.user.username, thread_sensitive=True
-            )()
+            username = player.user.username
             await self.broadcast_messages(f"🔵 {username} checked.")
 
         else:
@@ -300,9 +297,7 @@ class ActionsMixin:
         await sync_to_async(player.save)()
 
         # Broadcast
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
+        username = player.user.username
 
         if player.is_all_in:
             await self.broadcast_messages(
@@ -402,9 +397,7 @@ class ActionsMixin:
         await sync_to_async(lambda: game.save(update_fields=["last_raise_delta"]))()
 
         # Broadcast
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
+        username = player.user.username
 
         if player.is_all_in:
             await self.broadcast_messages(
@@ -457,8 +450,8 @@ class ActionsMixin:
                 await self.start_hand(game)
                 return
 
-        # Check if the phase is over
-        if await self.is_phase_over(game):
+        # Check if the phase is over (reuse the already-fetched active_players list)
+        if await self.is_phase_over(game, active_players):
             await self.end_phase(game)
         else:
             print("-----------------")

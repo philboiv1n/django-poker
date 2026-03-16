@@ -8,7 +8,7 @@ from ..utils import get_next_phase, find_best_five_cards, convert_treys_str_int_
 class PhasesMixin:
     """Betting phase management: is_phase_over, end_phase, goto_next_phase, handle_showdown."""
 
-    async def is_phase_over(self, game: Game) -> bool:
+    async def is_phase_over(self, game: Game, active_players=None) -> bool:
         """
         Determines if the current betting phase should end.
 
@@ -20,6 +20,8 @@ class PhasesMixin:
 
         Args:
             game (Game): The current game instance.
+            active_players (list, optional): Pre-fetched list of non-folded players.
+                If omitted, they are queried from the database.
 
         Returns:
             bool: True if the phase should end, False otherwise.
@@ -27,10 +29,11 @@ class PhasesMixin:
 
         print("* CHECK IF PHASE IS OVER")
 
-        active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False).order_by("position")),
-            thread_sensitive=True,
-        )()
+        if active_players is None:
+            active_players = await sync_to_async(
+                lambda: list(game.players.filter(has_folded=False).order_by("position")),
+                thread_sensitive=True,
+            )()
 
         # if no player or 1 player left (winner), stop
         if len(active_players) <= 1:
@@ -114,7 +117,7 @@ class PhasesMixin:
             winner.chips += pot
             await sync_to_async(lambda: winner.save(update_fields=["chips"]))()
 
-            username = await sync_to_async(lambda: winner.user.username)()
+            username = winner.user.username
             await self.broadcast_messages(
                 f"🏆 {username} is the last player and wins the pot of {pot} chips!"
             )

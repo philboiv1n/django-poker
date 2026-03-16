@@ -128,7 +128,7 @@ class GameConsumer(
 
             # Fetch the player *after* handling "join"
             player = await sync_to_async(
-                lambda: Player.objects.filter(
+                lambda: Player.objects.select_related("user").filter(
                     game=game, user__username=player_username
                 ).first()
             )()
