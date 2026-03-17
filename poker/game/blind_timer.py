@@ -26,7 +26,7 @@ async def _blind_timer_loop(game_id: int, channel_layer) -> None:
     change to all clients in the game room, then reschedules itself.
     Stops when the game is no longer active or blind_timer is 0.
     """
-    from poker.game.models import Game  # local import to avoid circular import
+    from game.models import Game  # local import to avoid circular import
 
     while True:
         try:
