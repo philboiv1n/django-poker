@@ -146,8 +146,10 @@ class ActionsMixin:
             active_remaining = list(
                 game.players.filter(has_folded=False).order_by("position")
             )
-            if game.current_turn == player_position and active_remaining:
-                game.current_turn = active_remaining[0].position
+            if game.current_turn == player_position:
+                # Only assign the turn to a player who can actually act (not all-in)
+                eligible_for_turn = [p for p in active_remaining if not p.is_all_in]
+                game.current_turn = eligible_for_turn[0].position if eligible_for_turn else None
 
             # End game if fewer than 2 players can still act
             if len(active_remaining) < 2:
