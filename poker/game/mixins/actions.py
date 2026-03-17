@@ -104,6 +104,10 @@ class ActionsMixin:
                 if p.chips > 0:
                     await self.transfer_chips_to_profile(game, p)
             await self.reset_hand(game)
+            # Clean up stale player records and reopen the table for new players
+            await sync_to_async(lambda: game.players.all().delete())()
+            game.status = "waiting"
+            await sync_to_async(lambda: game.save(update_fields=["status"]))()
         elif game.status == "active" and await self.is_phase_over(game):
             await self.end_phase(game)
             return
