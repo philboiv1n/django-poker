@@ -57,6 +57,7 @@ class GameConsumer(
         self.game_id = self.scope["url_route"]["kwargs"]["game_id"]
         self.room_group_name = f"game_{self.game_id}"
         self.user = self.scope["user"]
+        self.user_channel_name = None
 
         # Reject unauthenticated connections before accepting
         if not self.user.is_authenticated:
@@ -76,7 +77,12 @@ class GameConsumer(
         await self.accept()
 
         # Retrieve game and send **private** updates only to this user
-        game = await sync_to_async(Game.objects.get)(id=self.game_id)
+        try:
+            game = await sync_to_async(Game.objects.get)(id=self.game_id)
+        except Game.DoesNotExist:
+            logger.warning("Game %s not found, closing connection", self.game_id)
+            await self.close()
+            return
 
         # Send private hole cards only to the reconnecting player, not broadcast
         await self.send_private_game_state(game, self.user)
@@ -99,9 +105,10 @@ class GameConsumer(
         await self.channel_layer.group_discard(
             self.room_group_name, self.channel_name
         )
-        await self.channel_layer.group_discard(
-            self.user_channel_name, self.channel_name
-        )
+        if self.user_channel_name:
+            await self.channel_layer.group_discard(
+                self.user_channel_name, self.channel_name
+            )
 
     # =======================================================================
     # WEBSOCKET MESSAGE HANDLING

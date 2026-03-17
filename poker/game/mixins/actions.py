@@ -178,7 +178,7 @@ class ActionsMixin:
             # Game already finished — just clean up
             player.delete()
 
-        game.save()
+        game.save(update_fields=["status", "current_turn", "dealer_position"])
         return game
 
     async def handle_fold(self, game: Game, player: Player) -> None:
@@ -386,7 +386,7 @@ class ActionsMixin:
         is_all_in_attempt = (amount == player.chips)
 
         if amount < min_additional and not is_all_in_attempt:
-            await self.send(json.dumps({"error": f"Minimum raise to {min_raise_to} chips."}))
+            await self.send(text_data=json.dumps({"error": f"Minimum raise to {min_raise_to} chips."}))
             return
 
         # All-in check

@@ -33,7 +33,7 @@ def can_user_do_action(game: Game, player: Player, action: str, highest_bet: int
         return False
 
     if highest_bet is None:
-        highest_bet = max(game.players.values_list("current_bet", flat=True))
+        highest_bet = max(game.players.values_list("current_bet", flat=True), default=0)
     difference = highest_bet - player.current_bet
 
     if action == "check" and difference > 0 :
