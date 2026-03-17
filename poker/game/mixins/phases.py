@@ -47,7 +47,11 @@ class PhasesMixin:
         if not eligible_players:
             return True  # Everyone is all-in; move to next phase
 
-        highest_bet = max(p.current_bet for p in eligible_players)
+        # highest_bet must consider ALL active players (including all-ins) so that
+        # a player who went all-in for more than the current eligible-only maximum
+        # is still counted — otherwise eligible players would appear to have
+        # "matched" a bet they haven't actually called yet.
+        highest_bet = max(p.current_bet for p in active_players)
 
         # If all eligible players have checked with no bet
         all_players_checked = all(p.has_checked for p in eligible_players)

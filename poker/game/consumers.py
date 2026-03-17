@@ -134,7 +134,14 @@ class GameConsumer(
         # Always derive the player identity from the authenticated session —
         # never trust a username supplied by the client.
         player_username = self.user.username
-        amount = data.get("amount", 0)  # Only needed for bet/raise
+
+        # Coerce amount to int early so downstream handlers can trust the type.
+        # Floats, strings, and missing values are all normalised here.
+        try:
+            amount = int(data.get("amount", 0))
+        except (TypeError, ValueError):
+            await self.send(text_data=json.dumps({"error": "Invalid bet amount."}))
+            return
 
         try:
             game = await sync_to_async(Game.objects.get)(id=self.game_id)

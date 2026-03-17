@@ -44,30 +44,43 @@ class GameStateMixin:
         # Get blind amounts
         big_blind = game.big_blind
 
-        # Iterate over players and check chip status
+        # Iterate over players and remove those with no chips left
         for player in players:
             if player.chips == 0:
                 username = player.user.username
                 logger.debug("%s has no chips left and will be removed", username)
-                await self.handle_leave(game, username)  # Remove player from the game
+                await self.handle_leave(game, username)
             elif player.chips < big_blind:
                 username = player.user.username
                 logger.debug("%s does not have enough for blinds and will go all-in", username)
 
-        # Fetch active players again (updated) with user pre-loaded
+        # Re-fetch game from DB — handle_leave may have set status to "finished"
+        # and transferred chips, so the in-memory object is now stale.
+        game = await sync_to_async(Game.objects.get)(id=game.id)
+
+        if game.status == "finished":
+            logger.debug("start_hand: game already finished after removing bust players, aborting")
+            return
+
+        # Fetch active players again (updated) with user pre-loaded.
+        # Filter to only players who still have chips — in an active game, busted
+        # players are folded but their DB row is kept until the next hand, so a
+        # plain .all() would still return them.
         players = await sync_to_async(
-            lambda: list(game.players.select_related("user").order_by("position")),
+            lambda: list(
+                game.players.select_related("user").filter(chips__gt=0).order_by("position")
+            ),
             thread_sensitive=True,
         )()
 
-        # If only 1 player remains, end the hand
-        if len(players) == 1:
-            logger.debug("Only 1 player left. Ending game and transferring chips.")
-            cancel_blind_timer(game.id)
-            await self.transfer_chips_to_profile(game, players[0])
-            username = players[0].user.username
-            await self.broadcast_private(game)
-            await self.handle_leave(game, username)  # Remove player from the game
+        # Need at least 2 players with chips to start a hand
+        if len(players) < 2:
+            if len(players) == 1:
+                logger.debug("Only 1 player left. Ending game and transferring chips.")
+                cancel_blind_timer(game.id)
+                await self.transfer_chips_to_profile(game, players[0])
+                await self.broadcast_private(game)
+                await self.handle_leave(game, players[0].user.username)
             return
 
         # Assign dealer

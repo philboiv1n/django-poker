@@ -67,8 +67,10 @@ class DealingMixin:
 
         game.deck = deck
 
-        # Save
-        await sync_to_async(game.save)()
+        # Save only the deck field — game.save() without update_fields would
+        # overwrite every column with in-memory values, potentially clobbering
+        # concurrent writes (e.g. blind timer updates to small_blind/big_blind).
+        await sync_to_async(lambda: game.save(update_fields=["deck"]))()
 
         # Update Front-End
         await self.broadcast_private(game)

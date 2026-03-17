@@ -260,7 +260,7 @@ class ActionsMixin:
             await self.broadcast_messages(f"🔵 {username} checked.")
 
         else:
-            await self.send(json.dumps({"error": "Cannot check"}))
+            await self.send(text_data=json.dumps({"error": "Cannot check"}))
             return
 
         # Move to the post action flow
@@ -361,7 +361,7 @@ class ActionsMixin:
 
         # Block a raise if a sub-minimum all-in has frozen this player's option
         if not player.can_reraise_this_round:
-            await self.send(json.dumps({"error": "You can only call or fold."}))
+            await self.send(text_data=json.dumps({"error": "You can only call or fold."}))
             return
 
         highest_bet = await sync_to_async(
