@@ -16,6 +16,41 @@ let displayTime = 1000;
 let messageQueue = [];
 let isProcessingQueue = false;
 
+// Blind timer countdown
+let blindCountdownInterval = null;
+
+
+/* -----------------------------------------------------------------------
+ * Starts (or restarts) the blind increase countdown display.
+ * @param {string} blindsLastIncreasedAt - ISO datetime string
+ * @param {number} blindTimerMinutes - interval in minutes (0 = disabled)
+ * ----------------------------------------------------------------------*/
+function startBlindCountdown(blindsLastIncreasedAt, blindTimerMinutes) {
+  if (blindCountdownInterval) {
+    clearInterval(blindCountdownInterval);
+    blindCountdownInterval = null;
+  }
+
+  const el = document.getElementById("blind-countdown");
+  if (!el || !blindTimerMinutes || !blindsLastIncreasedAt) return;
+
+  const nextIncrease = new Date(blindsLastIncreasedAt).getTime() + blindTimerMinutes * 60000;
+
+  function tick() {
+    const remaining = Math.max(0, nextIncrease - Date.now());
+    const mins = String(Math.floor(remaining / 60000)).padStart(2, "0");
+    const secs = String(Math.floor((remaining % 60000) / 1000)).padStart(2, "0");
+    el.textContent = `${mins}:${secs}`;
+    if (remaining === 0) {
+      clearInterval(blindCountdownInterval);
+      blindCountdownInterval = null;
+    }
+  }
+
+  tick();
+  blindCountdownInterval = setInterval(tick, 1000);
+}
+
 
 /* -----------------------------------------------------------------------
  * Establishes WebSocket connection to the backend.
@@ -23,7 +58,8 @@ let isProcessingQueue = false;
  * ----------------------------------------------------------------------*/
 function connectWebSocket() {
 
-  socket = new WebSocket(`ws://${window.location.host}/ws/game/${gameId}/`);
+  const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+  socket = new WebSocket(`${wsProtocol}://${window.location.host}/ws/game/${gameId}/`);
 
   socket.onmessage = function (event) {
     const data = JSON.parse(event.data);
@@ -82,6 +118,24 @@ function connectWebSocket() {
         num = data.total_user_chips.toLocaleString('fr-CA');
         document.getElementById("total_user_chips").innerText = num;
       }
+
+      // Update blinds display and restart countdown when game state arrives
+      if (data.small_blind !== undefined && data.big_blind !== undefined) {
+        const blindsEl = document.getElementById("blinds-display");
+        if (blindsEl) blindsEl.innerHTML = `${data.small_blind}&nbsp;/&nbsp;${data.big_blind}`;
+      }
+      if (data.blinds_last_increased_at && data.blind_timer) {
+        startBlindCountdown(data.blinds_last_increased_at, data.blind_timer);
+      }
+
+      // Announce a blind increase
+      if (data.type === "blind_increase") {
+        showTemporaryMessage(
+          `⬆️ Blinds increased to ${data.small_blind} / ${data.big_blind}!`,
+          "info",
+          3000
+        );
+      }
     }
 
     if (data.messages && data.messages.length > 0) {
@@ -91,8 +145,19 @@ function connectWebSocket() {
   };
 
 
+  socket.onopen = function () {
+    const overlay = document.getElementById("overlay");
+    if (overlay) overlay.classList.add("hidden");
+  };
+
   socket.onclose = function (event) {
     console.warn("WebSocket Disconnected. Reconnecting in 5 seconds...");
+    const overlay = document.getElementById("overlay");
+    const overlayMessage = document.getElementById("overlayMessage");
+    if (overlay && overlayMessage) {
+      overlayMessage.textContent = "Reconnecting...";
+      overlay.classList.remove("hidden");
+    }
     setTimeout(connectWebSocket, reconnectInterval);
   };
 
@@ -516,6 +581,10 @@ window.onload = function () {
   buttonsStateMachine(gameStatus, currentPhase, currentTurnUsername, username, isPlayer, playersData);
 
   loadInitialCommunityCards();
+
+  if (GAME_CONFIG.blindTimer && GAME_CONFIG.blindsLastIncreasedAt) {
+    startBlindCountdown(GAME_CONFIG.blindsLastIncreasedAt, GAME_CONFIG.blindTimer);
+  }
 
   const lastMessages = GAME_CONFIG.lastMessages;
   const messagesList = document.getElementById("action-messages");

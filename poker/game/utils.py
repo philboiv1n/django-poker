@@ -10,6 +10,9 @@ from typing import List, Tuple
 from itertools import combinations
 from .models import Game, Player
 
+# Build the Treys lookup tables once at module load rather than on every call.
+_evaluator = Evaluator()
+
 
 
 # -----------------------------------------------------------------------
@@ -22,14 +25,15 @@ def create_deck () -> list:
 
 
 # -----------------------------------------------------------------------
-def can_user_do_action(game: Game, player: Player, action: str) -> bool:
+def can_user_do_action(game: Game, player: Player, action: str, highest_bet: int = None) -> bool:
     """
-    
+
     """
     if player.is_all_in or player.has_folded:
         return False
 
-    highest_bet = max(game.players.values_list("current_bet", flat=True))
+    if highest_bet is None:
+        highest_bet = max(game.players.values_list("current_bet", flat=True))
     difference = highest_bet - player.current_bet
 
     if action == "check" and difference > 0 :
@@ -74,24 +78,22 @@ def find_best_five_cards(seven_card_strings: List[str]) -> Tuple[int, str, Tuple
             - best_rank (str): Human-readable classification of the hand (e.g., "Straight", "Flush").
             - best_five_ints (Tuple[int, ...]): Tuple of Treys card integers representing the best hand.
     """
-    evaluator = Evaluator()
-
     # 1. Convert to Treys "card int" objects
     all_seven_cards = [Card.new(c) for c in seven_card_strings]
 
-    best_score = 7642 # 7642 distinctly ranked hands in poker.
+    best_score = 7642  # 7642 distinctly ranked hands in poker.
     best_five_cards = None
 
     # 2. Enumerate all 5-card combos
     for combo in combinations(all_seven_cards, 5):
-        score = evaluator.evaluate([], list(combo))
+        score = _evaluator.evaluate([], list(combo))
         if score <= best_score:
             best_score = score
             best_five_cards = combo
 
     # 3. Determine rank class
-    rank_class = evaluator.get_rank_class(best_score)
-    best_rank = evaluator.class_to_string(rank_class)
+    rank_class = _evaluator.get_rank_class(best_score)
+    best_rank = _evaluator.class_to_string(rank_class)
 
     # best_five_cards are already "card ints"
     return best_score, best_rank, best_five_cards

@@ -1,14 +1,17 @@
+import logging
 from collections import defaultdict
 from asgiref.sync import sync_to_async
 from treys import Card
 from ..models import Game, Player
 from ..utils import get_next_phase, find_best_five_cards, convert_treys_str_int_pretty
 
+logger = logging.getLogger(__name__)
+
 
 class PhasesMixin:
     """Betting phase management: is_phase_over, end_phase, goto_next_phase, handle_showdown."""
 
-    async def is_phase_over(self, game: Game) -> bool:
+    async def is_phase_over(self, game: Game, active_players=None) -> bool:
         """
         Determines if the current betting phase should end.
 
@@ -20,17 +23,20 @@ class PhasesMixin:
 
         Args:
             game (Game): The current game instance.
+            active_players (list, optional): Pre-fetched list of non-folded players.
+                If omitted, they are queried from the database.
 
         Returns:
             bool: True if the phase should end, False otherwise.
         """
 
-        print("* CHECK IF PHASE IS OVER")
+        logger.debug("is_phase_over")
 
-        active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False).order_by("position")),
-            thread_sensitive=True,
-        )()
+        if active_players is None:
+            active_players = await sync_to_async(
+                lambda: list(game.players.filter(has_folded=False).order_by("position")),
+                thread_sensitive=True,
+            )()
 
         # if no player or 1 player left (winner), stop
         if len(active_players) <= 1:
@@ -41,7 +47,11 @@ class PhasesMixin:
         if not eligible_players:
             return True  # Everyone is all-in; move to next phase
 
-        highest_bet = max(p.current_bet for p in eligible_players)
+        # highest_bet must consider ALL active players (including all-ins) so that
+        # a player who went all-in for more than the current eligible-only maximum
+        # is still counted — otherwise eligible players would appear to have
+        # "matched" a bet they haven't actually called yet.
+        highest_bet = max(p.current_bet for p in active_players)
 
         # If all eligible players have checked with no bet
         all_players_checked = all(p.has_checked for p in eligible_players)
@@ -62,12 +72,11 @@ class PhasesMixin:
         else:
             phase_over = False
 
-        print("* Checking if phase is over...")
+        logger.debug("is_phase_over: evaluating state")
         for p in active_players:
-            print(f"Player {p.position}: bet={p.current_bet}, acted={p.has_acted_this_round}, folded={p.has_folded}, all_in={p.is_all_in}")
-        print(f"Highest bet: {highest_bet}")
-        print(f"All players checked: {all_players_checked}")
-        print(f"All players matched bet: {all_players_matched_bet}")
+            logger.debug("  player %s: bet=%s acted=%s folded=%s all_in=%s", p.position, p.current_bet, p.has_acted_this_round, p.has_folded, p.is_all_in)
+        logger.debug("is_phase_over: highest_bet=%s", highest_bet)
+        logger.debug("is_phase_over: all_checked=%s all_matched=%s", all_players_checked, all_players_matched_bet)
         return phase_over
 
     async def end_phase(self, game: Game, winner=None) -> None:
@@ -86,7 +95,7 @@ class PhasesMixin:
             None
         """
 
-        print("* END PHASE")
+        logger.debug("end_phase")
 
         # Reset each player's current bet & checked status for the next phase/hand
         players = await sync_to_async(
@@ -97,20 +106,24 @@ class PhasesMixin:
             player.has_checked = False
             player.has_acted_this_round = False
             player.can_reraise_this_round = True
-            await sync_to_async(player.save)()
+        await sync_to_async(
+            lambda: Player.objects.bulk_update(
+                players, ["current_bet", "has_checked", "has_acted_this_round", "can_reraise_this_round"]
+            )
+        )()
 
         # Reset raise delta for the new betting round
         game.last_raise_delta = 0
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["last_raise_delta"]))()
 
         # If there's a forced winner (1 player left after folds),
         if winner:
             # Get the current pot amount
             pot = await sync_to_async(lambda: game.get_pot(), thread_sensitive=True)()
             winner.chips += pot
-            await sync_to_async(winner.save)()
+            await sync_to_async(lambda: winner.save(update_fields=["chips"]))()
 
-            username = await sync_to_async(lambda: winner.user.username)()
+            username = winner.user.username
             await self.broadcast_messages(
                 f"🏆 {username} is the last player and wins the pot of {pot} chips!"
             )
@@ -142,12 +155,12 @@ class PhasesMixin:
             None
         """
 
-        print("* GOTO NEXT PHASE")
+        logger.debug("goto_next_phase")
         next_phase = get_next_phase(game.current_phase)
         game.current_phase = next_phase
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["current_phase"]))()
 
-        print("** NEXT PHASE :", next_phase)
+        logger.debug("goto_next_phase: next=%s", next_phase)
         if next_phase not in {"flop", "turn", "river", "showdown"}:
             return  # Safety check
 
@@ -165,7 +178,7 @@ class PhasesMixin:
         game.deck = game.deck[cards_to_deal:]
 
         # Save
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["deck", "community_cards"]))()
 
         # Broadcast
         cards_pretty = await sync_to_async(convert_treys_str_int_pretty)(game.community_cards)
@@ -188,17 +201,20 @@ class PhasesMixin:
             None
         """
 
-        print("* MOVE TO SHOWDOWN")
+        logger.debug("handle_showdown")
 
         active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+            lambda: list(game.players.select_related("user").filter(has_folded=False)),
+            thread_sensitive=True,
         )()
 
         if not active_players:
             return  # Safety check
 
         # Sort players by total bet (all players, including folded)
-        all_players = await sync_to_async(lambda: list(game.players.all()), thread_sensitive=True)()
+        all_players = await sync_to_async(
+            lambda: list(game.players.select_related("user").all()), thread_sensitive=True
+        )()
         all_players.sort(key=lambda p: p.total_bet)
 
         # Build side pots including folded players' contributions
@@ -213,12 +229,11 @@ class PhasesMixin:
                 side_pots.append({"amount": pot_size, "eligible_ids": eligible_players})
                 previous_bet = current_bet
 
-        print(side_pots)
+        logger.debug("side_pots=%s", side_pots)
 
         # Evaluate each player's best 5-card hand
         player_hands = []
         for player in active_players:
-            username = await sync_to_async(lambda: player.user.username)()
             combined_cards = game.community_cards + player.hole_cards
             score, rank, best_5_ints = await sync_to_async(find_best_five_cards)(combined_cards)
             player_hands.append((score, rank, best_5_ints, player))
@@ -254,7 +269,6 @@ class PhasesMixin:
                 winnings[win_player]["best_rank"] = win_rank
                 winnings[win_player]["best_five"] = win_5
                 win_player.chips += share
-                await sync_to_async(win_player.save)()
 
             # Award the odd chip(s) to the winner(s) sitting closest left of the dealer
             if remainder > 0:
@@ -266,11 +280,15 @@ class PhasesMixin:
                 odd_chip_player = winners_sorted[0][3]
                 odd_chip_player.chips += remainder
                 winnings[odd_chip_player]["chips_won"] += remainder
-                await sync_to_async(odd_chip_player.save)()
+
+        # Persist all chip changes in a single bulk_update
+        await sync_to_async(
+            lambda: Player.objects.bulk_update(list(winnings.keys()), ["chips"])
+        )()
 
         # Now broadcast once per winning player
         for win_player, info in winnings.items():
-            username = await sync_to_async(lambda: win_player.user.username)()
+            username = win_player.user.username
             best_five_str = Card.ints_to_pretty_str(info["best_five"]).replace(",", "")
             rank_desc = info["best_rank"]
             total_chips = info["chips_won"]

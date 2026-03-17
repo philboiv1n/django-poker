@@ -1,9 +1,14 @@
 import json
 import asyncio
+import logging
 from django.db import transaction
+from django.utils.timezone import now
 from asgiref.sync import sync_to_async
 from ..models import Game, Player, User
 from ..utils import can_user_do_action
+from ..blind_timer import cancel_blind_timer
+
+logger = logging.getLogger(__name__)
 
 
 class ActionsMixin:
@@ -14,7 +19,7 @@ class ActionsMixin:
         Handles a player joining the game, with transaction safety and better structure.
         """
 
-        print("* HANDLE JOIN")
+        logger.debug("handle_join: %s", player_username)
 
         try:
             user = await sync_to_async(User.objects.get)(username=player_username)
@@ -85,11 +90,12 @@ class ActionsMixin:
             None
         """
 
-        print("* HANDLE LEAVE")
+        logger.debug("handle_leave: %s", player_username)
 
         game = await self.leave_game_transaction(game.id, player_username)
 
         if game.status == "finished":
+            cancel_blind_timer(game.id)
             # Transfer any remaining in-game chips to profiles before resetting
             remaining_players = await sync_to_async(
                 lambda: list(game.players.all()), thread_sensitive=True
@@ -98,6 +104,10 @@ class ActionsMixin:
                 if p.chips > 0:
                     await self.transfer_chips_to_profile(game, p)
             await self.reset_hand(game)
+            # Clean up stale player records and reopen the table for new players
+            await sync_to_async(lambda: game.players.all().delete())()
+            game.status = "waiting"
+            await sync_to_async(lambda: game.save(update_fields=["status"]))()
         elif game.status == "active" and await self.is_phase_over(game):
             await self.end_phase(game)
             return
@@ -132,16 +142,14 @@ class ActionsMixin:
             player.has_acted_this_round = True
             player.save()
 
-            # Reassign current_turn if this player was about to act
-            if game.current_turn == player_position:
-                active_remaining = list(
-                    game.players.filter(has_folded=False).order_by("position")
-                )
-                if active_remaining:
-                    game.current_turn = active_remaining[0].position
+            # Fetch once; reuse for both turn reassignment and finish check
+            active_remaining = list(
+                game.players.filter(has_folded=False).order_by("position")
+            )
+            if game.current_turn == player_position and active_remaining:
+                game.current_turn = active_remaining[0].position
 
             # End game if fewer than 2 players can still act
-            active_remaining = list(game.players.filter(has_folded=False))
             if len(active_remaining) < 2:
                 game.status = "finished"
 
@@ -156,7 +164,7 @@ class ActionsMixin:
             remaining_players = list(game.players.order_by("position"))
             for new_pos, p in enumerate(remaining_players):
                 p.position = new_pos
-                p.save()
+            Player.objects.bulk_update(remaining_players, ["position"])
 
             if len(remaining_players) < 2:
                 game.status = "waiting"
@@ -188,25 +196,27 @@ class ActionsMixin:
             None
         """
 
-        print("* HANDLE FOLD")
+        logger.debug("handle_fold")
 
         # Safety Check
         if player.is_all_in or player.has_folded:
             await self.send(text_data=json.dumps({"error": "You cannot fold."}))
             return
 
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
+        username = player.user.username
         await self.broadcast_messages(f"🔴 {username} folded.")
 
         player.has_folded = True
         player.has_acted_this_round = True
-        await sync_to_async(player.save)()
+        player.last_active = now()
+        await sync_to_async(
+            lambda: player.save(update_fields=["has_folded", "has_acted_this_round", "last_active"])
+        )()
 
         # Check if only one active player remains
         active_players = await sync_to_async(
-            lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
+            lambda: list(game.players.select_related("user").filter(has_folded=False)),
+            thread_sensitive=True,
         )()
         if len(active_players) == 1:
             await self.end_phase(game, winner=active_players[0])
@@ -229,27 +239,32 @@ class ActionsMixin:
             None
         """
 
-        print("* HANDLE CHECK")
+        logger.debug("handle_check")
+
+        # Safety Check
+        if player.is_all_in or player.has_folded:
+            await self.send(text_data=json.dumps({"error": "You cannot check."}))
+            return
 
         can_check = await sync_to_async(
             lambda: can_user_do_action(game, player, "check")
         )()
 
         if can_check == True:
-            print("YES CAN CHECK")
             # Mark the player as checked
             player.has_checked = True
             player.has_acted_this_round = True
-            await sync_to_async(player.save)()
+            player.last_active = now()
+            await sync_to_async(
+                lambda: player.save(update_fields=["has_checked", "has_acted_this_round", "last_active"])
+            )()
 
             # Broadcast
-            username = await sync_to_async(
-                lambda: player.user.username, thread_sensitive=True
-            )()
+            username = player.user.username
             await self.broadcast_messages(f"🔵 {username} checked.")
 
         else:
-            await self.send(json.dumps({"error": "Cannot check"}))
+            await self.send(text_data=json.dumps({"error": "Cannot check"}))
             return
 
         # Move to the post action flow
@@ -271,7 +286,7 @@ class ActionsMixin:
             None
         """
 
-        print("* HANDLE CALL")
+        logger.debug("handle_call")
 
         # Safety Check
         if player.is_all_in or player.has_folded:
@@ -299,12 +314,15 @@ class ActionsMixin:
         player.current_bet += call_amount
         player.total_bet += call_amount
         player.has_acted_this_round = True
-        await sync_to_async(player.save)()
+        player.last_active = now()
+        await sync_to_async(
+            lambda: player.save(
+                update_fields=["chips", "current_bet", "total_bet", "has_acted_this_round", "is_all_in", "last_active"]
+            )
+        )()
 
         # Broadcast
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
+        username = player.user.username
 
         if player.is_all_in:
             await self.broadcast_messages(
@@ -333,7 +351,7 @@ class ActionsMixin:
             None
         """
 
-        print("* HANDLE BET")
+        logger.debug("handle_bet: amount=%s", amount)
 
         # Safety Check
         if player.is_all_in or player.has_folded:
@@ -347,7 +365,7 @@ class ActionsMixin:
 
         # Block a raise if a sub-minimum all-in has frozen this player's option
         if not player.can_reraise_this_round:
-            await self.send(json.dumps({"error": "You can only call or fold."}))
+            await self.send(text_data=json.dumps({"error": "You can only call or fold."}))
             return
 
         highest_bet = await sync_to_async(
@@ -380,7 +398,12 @@ class ActionsMixin:
         player.current_bet += amount
         player.total_bet += amount
         player.has_acted_this_round = True
-        await sync_to_async(player.save)()
+        player.last_active = now()
+        await sync_to_async(
+            lambda: player.save(
+                update_fields=["chips", "current_bet", "total_bet", "has_acted_this_round", "is_all_in", "last_active"]
+            )
+        )()
 
         # Update last_raise_delta and handle sub-minimum all-in betting freeze
         new_bet_level = player.current_bet  # after the bet
@@ -394,17 +417,17 @@ class ActionsMixin:
             )()
             for p in already_acted:
                 p.can_reraise_this_round = False
-                await sync_to_async(p.save)()
+            await sync_to_async(
+                lambda: Player.objects.bulk_update(already_acted, ["can_reraise_this_round"])
+            )()
             # last_raise_delta stays unchanged (sub-minimum raise doesn't update it)
         else:
             # Full raise: update the raise delta for the next re-raise calculation
             game.last_raise_delta = raise_increment
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["last_raise_delta"]))()
 
         # Broadcast
-        username = await sync_to_async(
-            lambda: player.user.username, thread_sensitive=True
-        )()
+        username = player.user.username
 
         if player.is_all_in:
             await self.broadcast_messages(
@@ -433,7 +456,7 @@ class ActionsMixin:
             None
         """
 
-        print("* POST ACTION FLOW")
+        logger.debug("post_action_flow")
 
         active_players = await sync_to_async(
             lambda: list(game.players.filter(has_folded=False)), thread_sensitive=True
@@ -457,11 +480,9 @@ class ActionsMixin:
                 await self.start_hand(game)
                 return
 
-        # Check if the phase is over
-        if await self.is_phase_over(game):
+        # Check if the phase is over (reuse the already-fetched active_players list)
+        if await self.is_phase_over(game, active_players):
             await self.end_phase(game)
         else:
-            print("-----------------")
-            print(game.current_turn)
-            print("-----------------")
+            logger.debug("post_action_flow: advancing to next player (current_turn=%s)", game.current_turn)
             await self.next_player(game, game.current_turn)

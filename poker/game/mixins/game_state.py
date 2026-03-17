@@ -1,8 +1,14 @@
 import random
 import asyncio
+import logging
+from django.db import transaction
+from django.utils.timezone import now
 from asgiref.sync import sync_to_async
 from ..models import Game, Player
 from ..utils import create_deck
+from ..blind_timer import start_blind_timer, cancel_blind_timer
+
+logger = logging.getLogger(__name__)
 
 
 class GameStateMixin:
@@ -24,11 +30,12 @@ class GameStateMixin:
             None
         """
 
-        print("* START HAND")
+        logger.debug("start_hand")
 
-        # Fetch active players
+        # Fetch active players with user pre-loaded (needed for username access below)
         players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
+            lambda: list(game.players.select_related("user").order_by("position")),
+            thread_sensitive=True,
         )()
 
         # Reset and start the hand!
@@ -37,34 +44,43 @@ class GameStateMixin:
         # Get blind amounts
         big_blind = game.big_blind
 
-        # Iterate over players and check chip status
+        # Iterate over players and remove those with no chips left
         for player in players:
             if player.chips == 0:
-                username = await sync_to_async(
-                    lambda: player.user.username, thread_sensitive=True
-                )()
-                print(f"{username} has no chips left and will be removed from the game.")
-                await self.handle_leave(game, username)  # Remove player from the game
+                username = player.user.username
+                logger.debug("%s has no chips left and will be removed", username)
+                await self.handle_leave(game, username)
             elif player.chips < big_blind:
-                username = await sync_to_async(
-                    lambda: player.user.username, thread_sensitive=True
-                )()
-                print(f"{username} does not have enough for blinds and will go all-in.")
+                username = player.user.username
+                logger.debug("%s does not have enough for blinds and will go all-in", username)
 
-        # Fetch active players again (updated)
+        # Re-fetch game from DB — handle_leave may have set status to "finished"
+        # and transferred chips, so the in-memory object is now stale.
+        game = await sync_to_async(Game.objects.get)(id=game.id)
+
+        if game.status == "finished":
+            logger.debug("start_hand: game already finished after removing bust players, aborting")
+            return
+
+        # Fetch active players again (updated) with user pre-loaded.
+        # Filter to only players who still have chips — in an active game, busted
+        # players are folded but their DB row is kept until the next hand, so a
+        # plain .all() would still return them.
         players = await sync_to_async(
-            lambda: list(game.players.order_by("position")), thread_sensitive=True
+            lambda: list(
+                game.players.select_related("user").filter(chips__gt=0).order_by("position")
+            ),
+            thread_sensitive=True,
         )()
 
-        # If only 1 player remains, end the hand
-        if len(players) == 1:
-            print("*** Only 1 player left. Ending game and transferring chips.")
-            await self.transfer_chips_to_profile(game, players[0])
-            username = await sync_to_async(
-                lambda: players[0].user.username, thread_sensitive=True
-            )()
-            await self.broadcast_private(game)
-            await self.handle_leave(game, username)  # Remove player from the game
+        # Need at least 2 players with chips to start a hand
+        if len(players) < 2:
+            if len(players) == 1:
+                logger.debug("Only 1 player left. Ending game and transferring chips.")
+                cancel_blind_timer(game.id)
+                await self.transfer_chips_to_profile(game, players[0])
+                await self.broadcast_private(game)
+                await self.handle_leave(game, players[0].user.username)
             return
 
         # Assign dealer
@@ -88,8 +104,19 @@ class GameStateMixin:
         # Update Game Status
         game.status = "active"
 
+        # Initialise the blind timer timestamp on the first hand of this game
+        if game.blind_timer > 0 and game.blinds_last_increased_at is None:
+            game.blinds_last_increased_at = now()
+
         # Save
-        await sync_to_async(game.save)()
+        save_fields = ["status"]
+        if game.blinds_last_increased_at is not None:
+            save_fields.append("blinds_last_increased_at")
+        await sync_to_async(lambda: game.save(update_fields=save_fields))()
+
+        # Start (or restart) the blind increase timer
+        if game.blind_timer > 0:
+            start_blind_timer(game.id, self.channel_layer)
 
         # Broadcast
         await asyncio.gather(
@@ -111,7 +138,7 @@ class GameStateMixin:
             None
         """
 
-        print("* RESET HAND")
+        logger.debug("reset_hand")
 
         game.current_turn = None
         game.deck = []
@@ -130,9 +157,23 @@ class GameStateMixin:
             player.has_checked = False
             player.has_acted_this_round = False
             player.can_reraise_this_round = True
-            await sync_to_async(player.save)()
+            player.hole_cards = []
+        await sync_to_async(
+            lambda: Player.objects.bulk_update(
+                players,
+                [
+                    "current_bet", "total_bet", "has_folded", "is_all_in",
+                    "is_small_blind", "is_big_blind", "has_checked",
+                    "has_acted_this_round", "can_reraise_this_round", "hole_cards",
+                ],
+            )
+        )()
 
-        await sync_to_async(game.save)()
+        await sync_to_async(
+            lambda: game.save(
+                update_fields=["current_turn", "deck", "community_cards", "current_phase", "last_raise_delta"]
+            )
+        )()
 
     async def rotate_dealer(self, game: Game) -> None:
         """
@@ -148,7 +189,7 @@ class GameStateMixin:
             None
         """
 
-        print("* ROTATE DEALER")
+        logger.debug("rotate_dealer")
 
         # Get all players sorted by their 'position' field
         players = await sync_to_async(
@@ -176,15 +217,22 @@ class GameStateMixin:
                 new_dealer_index = (current_dealer_index + 1) % len(players)
 
         new_dealer = players[new_dealer_index]
+        new_dealer_id = new_dealer.id
+        new_dealer_position = new_dealer.position
 
-        # Reset the is_dealer flag for all players and assign to new dealer
-        await sync_to_async(lambda: Player.objects.filter(game=game).update(is_dealer=False))()
+        # Atomically reset is_dealer for all players and assign to new dealer
+        @sync_to_async
+        @transaction.atomic
+        def _set_dealer():
+            Player.objects.filter(game=game).update(is_dealer=False)
+            Player.objects.filter(id=new_dealer_id).update(is_dealer=True)
+
+        await _set_dealer()
+
+        # Update in-memory object and game
         new_dealer.is_dealer = True
-        await sync_to_async(new_dealer.save)()
-
-        # Update game
-        game.dealer_position = new_dealer.position
-        await sync_to_async(game.save)()
+        game.dealer_position = new_dealer_position
+        await sync_to_async(lambda: game.save(update_fields=["dealer_position"]))()
 
     async def assign_blinds(self, game: Game) -> None:
         """
@@ -201,7 +249,7 @@ class GameStateMixin:
             None
         """
 
-        print("* ASSIGN BLINDS")
+        logger.debug("assign_blinds")
 
         # Fetch the sorted player list
         players = await sync_to_async(
@@ -255,7 +303,6 @@ class GameStateMixin:
         small_blind_player.is_small_blind = True
         if small_blind_player.chips == 0:
             small_blind_player.is_all_in = True
-        await sync_to_async(small_blind_player.save)()
 
         # Deduct big blind (go all-in if not enough chips)
         bb_amount = min(big_blind, big_blind_player.chips)
@@ -265,10 +312,15 @@ class GameStateMixin:
         big_blind_player.is_big_blind = True
         if big_blind_player.chips == 0:
             big_blind_player.is_all_in = True
-        await sync_to_async(big_blind_player.save)()
+
+        # Save both blind players in a single round-trip
+        blind_fields = ["chips", "current_bet", "total_bet", "is_small_blind", "is_big_blind", "is_all_in"]
+        await sync_to_async(
+            lambda: Player.objects.bulk_update([small_blind_player, big_blind_player], blind_fields)
+        )()
 
         # Save
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["current_turn"]))()
 
     async def next_player(self, game: Game, start_position: int) -> int:
         """
@@ -282,8 +334,7 @@ class GameStateMixin:
         Returns:
             int: The seat number of the next player, or None if the betting round is complete.
         """
-        print("* NEXT PLAYER")
-        print("*** Provided start_position (seat):", start_position)
+        logger.debug("next_player: start_position=%s", start_position)
 
         # Fetch all players who have not folded
         all_active_players = await sync_to_async(
@@ -295,7 +346,7 @@ class GameStateMixin:
         eligible_players = [p for p in all_active_players if not p.is_all_in]
 
         if not eligible_players:
-            print("*** No eligible players found. Advancing to showdown.")
+            logger.debug("next_player: no eligible players, advancing to showdown")
             while game.current_phase != "showdown":
                 await self.goto_next_phase(game)
             await self.start_hand(game)
@@ -303,14 +354,14 @@ class GameStateMixin:
 
         # Compute highest bet among all (including all-ins) to fairly assess who needs to act
         highest_bet = max(p.current_bet for p in all_active_players)
-        print("*** Highest bet among all active players:", highest_bet)
+        logger.debug("next_player: highest_bet=%s", highest_bet)
 
         # Build circular player order after start_position
         after = [p for p in eligible_players if p.position > start_position]
         before = [p for p in eligible_players if p.position <= start_position]
         circular_order = after + before
 
-        print("*** Circular order of eligible players (by seat):", [p.position for p in circular_order])
+        logger.debug("next_player: circular_order=%s", [p.position for p in circular_order])
 
         candidate = None
         for p in circular_order:
@@ -319,11 +370,11 @@ class GameStateMixin:
                 break
 
         if candidate is None:
-            print("*** No player needs to act. Betting round is complete.")
+            logger.debug("next_player: no player needs to act")
             return None
 
-        print("*** Next candidate seat:", candidate.position)
+        logger.debug("next_player: candidate seat=%s", candidate.position)
         game.current_turn = candidate.position
-        await sync_to_async(game.save)()
+        await sync_to_async(lambda: game.save(update_fields=["current_turn"]))()
         await self.broadcast_game_state(game)
         return candidate.position
